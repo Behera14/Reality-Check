@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - DeepFake Detection</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
+            <p class="text-gray-600 mt-2">Manage datasets and model training</p>
+        </header>
+
+        <main>
+            <section class="bg-white rounded-lg shadow-md p-6 mb-8">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">Upload Dataset</h2>
+                
+                <form id="uploadForm" action="{{ url_for('admin_upload') }}" method="post" enctype="multipart/form-data" class="space-y-4">
+                    <div class="upload-area" id="dropZone">
+                        <input type="file" id="datasetFile" name="dataset" accept=".zip" class="hidden" multiple>
+                        <div class="space-y-2">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                                <path d="M24 8v32m16-16H8" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            <div class="text-sm text-gray-600">
+                                <label for="datasetFile" class="relative cursor-pointer rounded-md font-medium text-blue-600 hover:text-blue-500">
+                                    <span>Upload dataset files</span>
+                                </label>
+                                <p class="pl-1">or drag and drop</p>
+                            </div>
+                            <p class="text-xs text-gray-500">ZIP files up to 500MB</p>
+                        </div>
+                    </div>
+
+                    <div id="uploadProgress" class="hidden">
+                        <div class="flex justify-between text-sm text-gray-600 mb-1">
+                            <span>Uploading...</span>
+                            <span id="progressPercent">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-bar-fill" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors">
+                            Upload Dataset
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">Uploaded Datasets</h2>
+                
+                <div id="datasetList" class="space-y-4">
+                    {% if datasets %}
+                        {% for dataset in datasets %}
+                        <div class="dataset-item">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h3 class="font-medium text-gray-900">{{ dataset.name }}</h3>
+                                    <p class="text-sm text-gray-500">Uploaded on {{ dataset.upload_date }}</p>
+                                    <p class="text-sm text-gray-500">Size: {{ (dataset.size / 1024 / 1024) | round(2) }} MB</p>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">View Details</button>
+                                    <button class="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-gray-500 text-center py-4">No datasets uploaded yet</p>
+                    {% endif %}
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const uploadForm = document.getElementById('uploadForm');
+        const fileInput = document.getElementById('datasetFile');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const progressBar = document.querySelector('.progress-bar-fill');
+        const progressPercent = document.getElementById('progressPercent');
+
+        // Drag and drop functionality
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-blue-500');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-blue-500');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-blue-500');
+            fileInput.files = e.dataTransfer.files;
+            updateFileList();
+        });
+
+        fileInput.addEventListener('change', updateFileList);
+
+        function updateFileList() {
+            const files = fileInput.files;
+            if (files.length > 0) {
+                const fileNames = Array.from(files).map(file => file.name).join(', ');
+                dropZone.querySelector('p').textContent = `Selected: ${fileNames}`;
+            }
+        }
+
+        uploadForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(uploadForm);
+            uploadProgress.classList.remove('hidden');
+
+            fetch(uploadForm.action, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Add the new dataset to the list
+                    const datasetList = document.getElementById('datasetList');
+                    const noDatasetMsg = datasetList.querySelector('p.text-center');
+                    if (noDatasetMsg) {
+                        noDatasetMsg.remove();
+                    }
+
+                    const newDataset = document.createElement('div');
+                    newDataset.className = 'dataset-item';
+                    newDataset.innerHTML = `
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h3 class="font-medium text-gray-900">${data.dataset.name}</h3>
+                                <p class="text-sm text-gray-500">Uploaded on ${data.dataset.upload_date}</p>
+                                <p class="text-sm text-gray-500">Size: ${(data.dataset.size / 1024 / 1024).toFixed(2)} MB</p>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">View Details</button>
+                                <button class="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
+                            </div>
+                        </div>
+                    `;
+                    datasetList.insertBefore(newDataset, datasetList.firstChild);
+                    
+                    // Reset form
+                    uploadForm.reset();
+                    dropZone.querySelector('p').textContent = 'or drag and drop';
+                    uploadProgress.classList.add('hidden');
+                    progressBar.style.width = '0%';
+                    progressPercent.textContent = '0%';
+                } else {
+                    alert('Upload failed: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Upload failed. Please try again.');
+            });
+
+            // Simulate upload progress
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 10;
+                if (progress > 100) {
+                    clearInterval(interval);
+                    return;
+                }
+                progressBar.style.width = `${progress}%`;
+                progressPercent.textContent = `${progress}%`;
+            }, 500);
+        });
+    </script>
+</body>
+</html>
