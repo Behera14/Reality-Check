@@ -401,7 +401,7 @@ def extract_frames(video_path, num_frames=8):
 def predict(model, img, path='./'):
     try:
         with torch.no_grad():
-            fmap, logits = model(img.to())
+            fmap, logits = model(img)
             params = list(model.parameters())
             weight_softmax = model.linear1.weight.detach().cpu().numpy()
             logits = F.softmax(logits, dim=1)
@@ -494,21 +494,11 @@ def detectFakeVideo(videoPath):
             transforms.Normalize(mean,std)
         ])
         
-
-        ## old one (file model)
-        # path_to_videos = [videoPath]
-        # video_dataset = validation_dataset(path_to_videos, sequence_length=20, transform=train_transforms)
-        # model = Model(2)
-        # path_to_model = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'model/df_model.pt')
-        
         path_to_videos = [videoPath]
         video_dataset = validation_dataset(path_to_videos, sequence_length=20, transform=train_transforms)
-        model = Model(2)
-
-        # Download and load model from Hugging Face Hub
-        model_path = hf_hub_download(repo_id="imtiyaz123/DF_Model", filename="df_model.pt")
-        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-        model.eval()
+        
+        # Use the lazy-loaded model instead of creating a new one
+        model, _ = get_model()
         
         prediction = predict(model, video_dataset[0], './')
         
@@ -608,12 +598,21 @@ def detect():
         try:
             logger.info(f"Processing video: {video_filename}")
             
+            # Check if video file exists and has content
+            if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
+                raise Exception("Video file is empty or corrupted")
+            
             frames, frame_paths = extract_frames(video_path)
             
             if not frames:
                 raise Exception("No frames could be extracted from the video")
             
+            logger.info(f"Extracted {len(frames)} frames from video")
+            
             prediction, processing_time = detectFakeVideo(video_path)
+            
+            if prediction is None or len(prediction) < 2:
+                raise Exception("Model prediction failed")
             
             if prediction[0] == 0:
                 output = "FAKE"
