@@ -593,7 +593,10 @@
             // Results handling
             if (typeof window.data !== 'undefined') {
                 try {
+                    console.log('Raw data received:', window.data);
                     const parsedData = typeof window.data === 'string' ? JSON.parse(window.data) : window.data;
+                    console.log('Parsed data:', parsedData);
+                    
                     const resultsDiv = document.getElementById('results');
                     const resultText = document.getElementById('result-text');
                     const confidenceText = document.getElementById('confidence-text');
@@ -614,45 +617,35 @@
                     confidenceText.textContent = `Confidence: ${parsedData.confidence.toFixed(2)}%`;
                     
                     // Update analysis details
-                    framesCount.textContent = parsedData.frames ? parsedData.frames.length : 0;
+                    framesCount.textContent = '0'; // No frames extracted for memory optimization
                     modelConfidence.textContent = `${parsedData.confidence.toFixed(2)}%`;
                     processingTime.textContent = `${parsedData.processing_time}s`;
 
-                    // Update graph images
-                    if (parsedData.confidence_image) {
-                        confidenceImage.src = `/static/${parsedData.confidence_image}`;
-                    }
-                    if (parsedData.comparison_image) {
-                        comparisonImage.src = `/static/${parsedData.comparison_image}`;
-                    }
+                    // Hide graph images since we're not generating them
+                    if (confidenceImage) confidenceImage.style.display = 'none';
+                    if (comparisonImage) comparisonImage.style.display = 'none';
 
-                    // Display frames if available
-                    if (parsedData.frames && parsedData.frames.length > 0) {
-                        framesGrid.innerHTML = parsedData.frames.map((frame, index) => `
-                            <div class="frame-item" role="gridcell">
-                                <img src="/static/frames/${frame}" alt="Analyzed video frame ${index + 1}" loading="lazy">
-                                <div class="frame-info">
-                                    <p class="frame-number">Frame ${index + 1}</p>
-                                </div>
-                            </div>
-                        `).join('');
+                    // Hide frames grid since we're not extracting frames
+                    if (framesGrid) framesGrid.style.display = 'none';
 
-                        // Add frame hover effect
-                        const frameItems = document.querySelectorAll('.frame-item');
-                        frameItems.forEach(item => {
-                            item.addEventListener('mouseenter', function() {
-                                this.style.transform = 'scale(1.05)';
-                            });
-                            item.addEventListener('mouseleave', function() {
-                                this.style.transform = 'scale(1)';
-                            });
-                        });
-                    }
+                    // Add a success message
+                    const successMessage = document.createElement('div');
+                    successMessage.className = 'success-message';
+                    successMessage.innerHTML = `
+                        <div style="text-align: center; padding: 20px; background: rgba(100, 255, 218, 0.1); border-radius: 8px; margin: 20px 0;">
+                            <h3 style="color: #64ffda; margin-bottom: 10px;">Analysis Complete!</h3>
+                            <p style="color: #8892b0;">Video processed successfully. Memory-optimized analysis completed.</p>
+                        </div>
+                    `;
+                    resultsDiv.insertBefore(successMessage, resultsDiv.firstChild);
+
                 } catch (error) {
                     console.error('Error parsing data:', error);
                     errorMessage.textContent = 'An error occurred while processing the results';
                     errorMessage.style.display = 'block';
                 }
+            } else {
+                console.log('No data received from server');
             }
         });
     </script>
