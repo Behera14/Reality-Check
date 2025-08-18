@@ -47,10 +47,11 @@ from torchvision import models
 from skimage import img_as_ubyte
 import warnings
 warnings.filterwarnings("ignore")
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
-from matplotlib.colors import LinearSegmentedColormap
+# Remove matplotlib imports since we're not generating graphs
+# import matplotlib.pyplot as plt
+# import matplotlib
+# matplotlib.use('Agg')
+# from matplotlib.colors import LinearSegmentedColormap
 from huggingface_hub import hf_hub_download
 
 # Configure logging
@@ -59,19 +60,20 @@ logger = logging.getLogger(__name__)
 
 # Get the absolute path for the upload folder
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Uploaded_Files')
-FRAMES_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'frames')
-GRAPHS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'graphs')
+# Remove unused folder paths
+# FRAMES_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'frames')
+# GRAPHS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'graphs')
 DATASET_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Admin', 'datasets')
 
 # Create the folders if they don't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(FRAMES_FOLDER, exist_ok=True)
-os.makedirs(GRAPHS_FOLDER, exist_ok=True)
+# os.makedirs(FRAMES_FOLDER, exist_ok=True)
+# os.makedirs(GRAPHS_FOLDER, exist_ok=True)
 os.makedirs(DATASET_FOLDER, exist_ok=True)
 
 # Ensure folders have proper permissions
-os.chmod(FRAMES_FOLDER, 0o755)
-os.chmod(GRAPHS_FOLDER, 0o755)
+# os.chmod(FRAMES_FOLDER, 0o755)
+# os.chmod(GRAPHS_FOLDER, 0o755)
 os.chmod(DATASET_FOLDER, 0o755)
 
 video_path = ""
@@ -158,145 +160,6 @@ def logout():
     logout_user()
     return redirect(url_for('homepage'))
 
-def generate_confidence_graph(confidence):
-    try:
-        plt.figure(figsize=(10, 10))
-        plt.style.use('dark_background')
-        
-        real_cmap = LinearSegmentedColormap.from_list('custom_real', ['#2ecc71', '#27ae60'])
-        fake_cmap = LinearSegmentedColormap.from_list('custom_fake', ['#e74c3c', '#c0392b'])
-        
-        colors = [real_cmap(0.6), fake_cmap(0.6)]
-        
-        sizes = [confidence, 100 - confidence]
-        labels = ['Real', 'Fake']
-        explode = (0.05, 0)
-        
-        wedges, texts, autotexts = plt.pie(sizes, 
-                                          explode=explode, 
-                                          labels=labels, 
-                                          colors=colors,
-                                          autopct='%1.1f%%', 
-                                          shadow=True, 
-                                          startangle=90,
-                                          textprops={'fontsize': 14, 'color': 'white'},
-                                          wedgeprops={'edgecolor': '#2c3e50', 'linewidth': 2})
-        
-        plt.setp(autotexts, size=12, weight="bold")
-        plt.setp(texts, size=14, weight="bold")
-        
-        plt.title('Confidence Score', 
-                 pad=20, 
-                 fontsize=16, 
-                 fontweight='bold', 
-                 color='white')
-        
-        plt.axis('equal')
-        plt.grid(True, alpha=0.1, linestyle='--')
-        
-        unique_id = str(uuid.uuid4()).split('-')[0]
-        graph_filename = f'confidence_{unique_id}.png'
-        graph_path = os.path.join(GRAPHS_FOLDER, graph_filename)
-        plt.savefig(graph_path, 
-                   bbox_inches='tight', 
-                   dpi=300, 
-                   transparent=True,
-                   facecolor='#1a1a1a')
-        plt.close()
-        
-        logger.info(f"Generated confidence graph: {graph_filename}")
-        return f'graphs/{graph_filename}'
-    except Exception as e:
-        logger.error(f"Error generating confidence graph: {str(e)}")
-        traceback.print_exc()
-        return None
-
-def generate_comparison_graph(our_accuracy):
-    try:
-        plt.figure(figsize=(12, 7))
-        plt.style.use('dark_background')
-        
-        DATASET_ACCURACIES['Our Model'] = our_accuracy
-        
-        datasets = list(DATASET_ACCURACIES.keys())
-        accuracies = list(DATASET_ACCURACIES.values())
-        
-        main_color = '#64ffda'
-        secondary_colors = ['#34495e', '#2c3e50', '#2980b9']
-        colors = [main_color] + secondary_colors
-        
-        plt.gca().set_facecolor('#111d40')
-        plt.gcf().set_facecolor('#111d40')
-        
-        bars = plt.bar(datasets, accuracies, color=colors)
-        
-        plt.grid(axis='y', linestyle='--', alpha=0.2, color='white')
-        
-        plt.title('Model Performance Comparison', 
-                 color='white', 
-                 pad=20, 
-                 fontsize=16, 
-                 fontweight='bold')
-        
-        plt.xlabel('Models', 
-                  color='white', 
-                  labelpad=10, 
-                  fontsize=12, 
-                  fontweight='bold')
-        
-        plt.ylabel('Accuracy (%)', 
-                  color='white', 
-                  labelpad=10, 
-                  fontsize=12, 
-                  fontweight='bold')
-        
-        plt.xticks(rotation=30, 
-                  ha='right', 
-                  color='#8892b0', 
-                  fontsize=10)
-        
-        plt.yticks(color='#8892b0', 
-                  fontsize=10)
-        
-        for bar in bars:
-            height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height:.1f}%',
-                    ha='center', 
-                    va='bottom', 
-                    color='white',
-                    fontsize=11,
-                    fontweight='bold',
-                    bbox=dict(facecolor='#111d40', 
-                             edgecolor='none', 
-                             alpha=0.7,
-                             pad=3))
-        
-        plt.box(True)
-        plt.gca().spines['top'].set_visible(False)
-        plt.gca().spines['right'].set_visible(False)
-        plt.gca().spines['left'].set_color('#34495e')
-        plt.gca().spines['bottom'].set_color('#34495e')
-        
-        plt.tight_layout()
-        unique_id = str(uuid.uuid4()).split('-')[0]
-        graph_filename = f'comparison_{unique_id}.png'
-        graph_path = os.path.join(GRAPHS_FOLDER, graph_filename)
-        
-        plt.savefig(graph_path, 
-                   bbox_inches='tight', 
-                   dpi=300, 
-                   transparent=True,
-                   facecolor='#111d40')
-        plt.close()
-        
-        logger.info(f"Generated comparison graph: {graph_filename}")
-        return f'graphs/{graph_filename}'
-    except Exception as e:
-        logger.error(f"Error generating comparison graph: {str(e)}")
-        traceback.print_exc()
-        return None
-
 class Model(nn.Module):
     def __init__(self, num_classes, latent_dim=2048, lstm_layers=1, hidden_dim=2048, bidirectional=False):
         super(Model, self).__init__()
@@ -316,87 +179,6 @@ class Model(nn.Module):
         x = x.view(batch_size, seq_length, 2048)
         x_lstm,_ = self.lstm(x, None)
         return fmap, self.dp(self.linear1(x_lstm[:,-1,:]))
-
-def extract_frames(video_path, num_frames=8):
-    frames = []
-    frame_paths = []
-    unique_id = str(uuid.uuid4()).split('-')[0]
-    
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise Exception("Error opening video file")
-        
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    if total_frames == 0:
-        raise Exception("Video file appears to be empty")
-        
-    interval = total_frames // num_frames
-    
-    count = 0
-    frame_count = 0
-    
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        if count % interval == 0 and frame_count < num_frames:
-            # Convert BGR to RGB
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # Process the frame with MediaPipe Face Mesh
-            results = face_mesh.process(rgb_frame)
-            
-            if not results.multi_face_landmarks:
-                continue
-                
-            try:
-                face_landmarks = results.multi_face_landmarks[0]
-                
-                # Get face bounding box from landmarks
-                h, w, _ = frame.shape
-                x_coordinates = [landmark.x for landmark in face_landmarks.landmark]
-                y_coordinates = [landmark.y for landmark in face_landmarks.landmark]
-                
-                x_min, x_max = min(x_coordinates), max(x_coordinates)
-                y_min, y_max = min(y_coordinates), max(y_coordinates)
-                
-                # Convert normalized coordinates to pixel coordinates
-                x = int(x_min * w)
-                y = int(y_min * h)
-                face_width = int((x_max - x_min) * w)
-                face_height = int((y_max - y_min) * h)
-                
-                # Add padding (20%)
-                padding_x = int(face_width * 0.2)
-                padding_y = int(face_height * 0.2)
-                
-                # Calculate coordinates with padding and boundary checks
-                left = max(0, x - padding_x)
-                top = max(0, y - padding_y)
-                right = min(w, x + face_width + padding_x)
-                bottom = min(h, y + face_height + padding_y)
-                
-                face_frame = frame[top:bottom, left:right, :]
-                frame_path = os.path.join(FRAMES_FOLDER, f'frame_{unique_id}_{frame_count}.jpg')
-                cv2.imwrite(frame_path, face_frame)
-                frame_paths.append(os.path.basename(frame_path))
-                frames.append(face_frame)
-                frame_count += 1
-                logger.info(f"Extracted frame {frame_count}: {os.path.basename(frame_path)}")
-            except Exception as e:
-                logger.error(f"Error processing frame {frame_count}: {str(e)}")
-                continue
-                
-        count += 1
-        if frame_count >= num_frames:
-            break
-            
-    cap.release()
-    
-    if len(frames) == 0:
-        raise Exception("No faces detected in the video")
-        
-    return frames, frame_paths
 
 def predict(model, img, path='./'):
     try:
@@ -602,13 +384,6 @@ def detect():
             if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
                 raise Exception("Video file is empty or corrupted")
             
-            frames, frame_paths = extract_frames(video_path)
-            
-            if not frames:
-                raise Exception("No frames could be extracted from the video")
-            
-            logger.info(f"Extracted {len(frames)} frames from video")
-            
             prediction, processing_time = detectFakeVideo(video_path)
             
             if prediction is None or len(prediction) < 2:
@@ -622,21 +397,10 @@ def detect():
             
             logger.info(f"Video prediction: {output} with confidence {confidence}%")
             
-            confidence_image = generate_confidence_graph(confidence)
-            if not confidence_image:
-                raise Exception("Failed to generate confidence graph")
-                
-            comparison_image = generate_comparison_graph(confidence)
-            if not comparison_image:
-                raise Exception("Failed to generate comparison graph")
-            
             data = {
                 'output': output, 
                 'confidence': confidence,
-                'frames': frame_paths,
-                'processing_time': round(processing_time, 2),
-                'confidence_image': confidence_image,
-                'comparison_image': comparison_image
+                'processing_time': round(processing_time, 2)
             }
             
             logger.info(f"Sending response data: {data}")
