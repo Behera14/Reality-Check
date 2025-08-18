@@ -8,6 +8,13 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 os.environ['MEDIAPIPE_DISABLE_GPU']='1'  # Force MediaPipe to use CPU only
 
+# Memory optimization settings
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+
 import torch
 import torchvision
 from torchvision import transforms
@@ -677,24 +684,33 @@ class DFModel(torch.nn.Module):
         x_lstm, _ = self.lstm(x, None)
         return fmap, self.dp(self.linear1(x_lstm[:, -1, :]))
 
+# Lazy loading for model
+_model = None
+_transform = None
 
-# ✅ Load model from Hugging Face
-model_path = hf_hub_download(repo_id="imtiyaz123/DF_Model", filename="df_model.pt")
-
-# ✅ Initialize model and load weights properly
-model = DFModel()
-model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-model.eval()
-
-# ✅ Image transformation
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
+def get_model():
+    global _model, _transform
+    if _model is None:
+        # ✅ Load model from Hugging Face
+        model_path = hf_hub_download(repo_id="imtiyaz123/DF_Model", filename="df_model.pt")
+        
+        # ✅ Initialize model and load weights properly
+        _model = DFModel()
+        _model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+        _model.eval()
+        
+        # ✅ Image transformation
+        _transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+    
+    return _model, _transform
 
 def predict_image(image_path):
     try:
+        model, transform = get_model()
         image = Image.open(image_path).convert("RGB")
         image = transform(image).unsqueeze(0)
         with torch.no_grad():
@@ -736,4 +752,6 @@ def image_detect():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     debug = os.environ.get('FLASK_ENV') == 'development'
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    
+    # For Render deployment, bind to 0.0.0.0
+    app.run(host="0.0.0.0", port=port, debug=debug, threaded=True)
