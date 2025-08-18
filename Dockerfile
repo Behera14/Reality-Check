@@ -16,24 +16,27 @@ ENV VECLIB_MAXIMUM_THREADS=4
 WORKDIR /app
 
 # Update the package list and install system dependencies
+# Using a more robust approach that handles different Debian versions
 RUN apt-get update -y && \
     apt-get install -y \
     libopenblas-dev \
     liblapack-dev \
-    libgl1 \
     libglib2.0-0 \
     libx11-6 \
     libxext6 \
     libxrender1 \
     libxinerama1 \
     libxi6 \
-    libglu1-mesa \
-    libglu1-mesa-dev \
     gcc \
     g++ \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && \
+    # Try to install OpenGL packages with fallbacks
+    (apt-get install -y libgl1 || apt-get install -y libgl1-mesa-glx || true) && \
+    (apt-get install -y libglu1-mesa || apt-get install -y libglu1-mesa-dev || true) && \
+    (apt-get install -y mesa-common-dev || true) && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
 
 # Copy requirements first for better caching
 COPY requirements.txt .
