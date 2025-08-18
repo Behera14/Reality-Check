@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python start_production.py
+    startCommand: python server.py
     envVars:
       - key: FLASK_ENV
         value: production
@@ -32,6 +32,6 @@ services:
         value: "1"
       - key: VECLIB_MAXIMUM_THREADS
         value: "1"
-    healthCheckPath: /
+    healthCheckPath: /health
     autoDeploy: true
 

@@ -39,6 +39,11 @@ import uuid
 import sys
 import traceback
 from PIL import Image
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Initialize MediaPipe Face Mesh for CPU
 mp_face_mesh = mp.solutions.face_mesh
 mp_drawing = mp.solutions.drawing_utils
@@ -77,10 +82,6 @@ warnings.filterwarnings("ignore")
 # matplotlib.use('Agg')
 # from matplotlib.colors import LinearSegmentedColormap
 from huggingface_hub import hf_hub_download
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Get the absolute path for the upload folder
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Uploaded_Files')
@@ -395,21 +396,40 @@ def admin_upload():
         logger.error(f"Error uploading dataset: {str(e)}")
         return jsonify({'success': False, 'error': f'Error uploading dataset: {str(e)}'})
 
+@app.route('/test')
+def test_endpoint():
+    """Simple test endpoint to verify the server is working"""
+    return jsonify({
+        'status': 'ok',
+        'message': 'Server is running',
+        'timestamp': datetime.datetime.now().isoformat()
+    })
+
 @app.route('/detect', methods=['GET', 'POST'])
 @login_required
 def detect():
+    logger.info(f"Detect route called with method: {request.method}")
+    
     if request.method == 'GET':
+        logger.info("Rendering detect.html template")
         return render_template('detect.html')
+    
     if request.method == 'POST':
+        logger.info("Processing video upload")
         try:
             if 'video' not in request.files:
+                logger.error("No video file in request")
                 return render_template('detect.html', error="No video file uploaded")
                 
             video = request.files['video']
+            logger.info(f"Video file received: {video.filename}")
+            
             if video.filename == '':
+                logger.error("Empty video filename")
                 return render_template('detect.html', error="No video file selected")
                 
             if not video.filename.lower().endswith(('.mp4', '.avi', '.mov')):
+                logger.error(f"Invalid file format: {video.filename}")
                 return render_template('detect.html', error="Invalid file format. Please upload MP4, AVI, or MOV files.")
             
             # Check file size (limit to 100MB)
@@ -417,7 +437,10 @@ def detect():
             file_size = video.tell()
             video.seek(0)  # Reset to beginning
             
+            logger.info(f"Video file size: {file_size} bytes")
+            
             if file_size > 100 * 1024 * 1024:  # 100MB limit
+                logger.error(f"File too large: {file_size} bytes")
                 return render_template('detect.html', error="File too large. Please upload a video smaller than 100MB.")
                 
             video_filename = secure_filename(video.filename)
@@ -430,8 +453,11 @@ def detect():
             if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
                 raise Exception("Video file is empty or corrupted")
             
+            logger.info("Starting video analysis...")
             # Process video without signal-based timeout
             prediction, processing_time = detectFakeVideo(video_path)
+            
+            logger.info(f"Analysis completed. Prediction: {prediction}, Time: {processing_time}")
             
             if prediction is None or len(prediction) < 2:
                 raise Exception("Model prediction failed")
@@ -612,11 +638,22 @@ if __name__ == '__main__':
     logging.getLogger('absl').setLevel(logging.ERROR)
     logging.getLogger('tensorflow').setLevel(logging.ERROR)
     
+    # Get port from environment (Render sets this)
     port = int(os.environ.get('PORT', 10000))
     debug = os.environ.get('FLASK_ENV') == 'development'
     
     logger.info(f"Starting DeepFake Detection App on port {port}")
     logger.info("Production mode: GPU disabled, CPU-only processing")
     
-    # For Render deployment, bind to 0.0.0.0
-    app.run(host="0.0.0.0", port=port, debug=debug, threaded=True)
+    # For Render deployment, bind to 0.0.0.0 and use the correct port
+    try:
+        app.run(
+            host="0.0.0.0", 
+            port=port, 
+            debug=debug, 
+            threaded=True,
+            use_reloader=False  # Disable reloader for production
+        )
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        sys.exit(1)
