@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pie Chart Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background: #1a1a1a;
+            color: #8892b0;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .chart-container {
+            width: 350px;
+            height: 350px;
+            margin: 20px auto;
+            background: rgba(26, 26, 26, 0.3);
+            border-radius: 50%;
+            padding: 20px;
+        }
+        canvas {
+            border-radius: 50%;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+        }
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        .real { background: #27ae60; }
+        .fake { background: #e74c3c; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 style="color: #64ffda;">Pie Chart Test</h1>
+        <div class="chart-container">
+            <canvas id="testChart" width="350" height="350"></canvas>
+        </div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color real"></div>
+                <span>Real (85.5%)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color fake"></div>
+                <span>Fake (14.5%)</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('testChart').getContext('2d');
+        
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Real', 'Fake'],
+                datasets: [{
+                    data: [85.5, 14.5],
+                    backgroundColor: ['#27ae60', '#e74c3c'],
+                    borderWidth: 4,
+                    borderColor: '#1a1a1a',
+                    hoverBorderWidth: 6,
+                    hoverBorderColor: '#64ffda'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '65%',
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 26, 26, 0.95)',
+                        titleColor: '#64ffda',
+                        bodyColor: '#8892b0',
+                        borderColor: '#64ffda',
+                        borderWidth: 2,
+                        cornerRadius: 8,
+                        displayColors: false,
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                return tooltipItems[0].label;
+                            },
+                            label: function(context) {
+                                return context.parsed.toFixed(1) + '%';
+                            }
+                        }
+                    }
+                },
+                animation: {
+                    animateRotate: true,
+                    duration: 1500
+                }
+            }
+        });
+    </script>
+</body>
+</html> 

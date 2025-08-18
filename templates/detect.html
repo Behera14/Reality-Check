@@ -12,6 +12,7 @@
     <title>DeepFake Detection - Video Analysis</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* Base styles */
         :root {
@@ -162,30 +163,59 @@
         .result-container {
             background: var(--bg-darker);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
+            border-radius: 12px;
             padding: 2rem;
             margin: 2rem 0;
+            text-align: center;
+        }
+
+        .result-heading {
+            color: var(--primary-color);
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+            font-weight: 600;
         }
 
         .result-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2rem;
+            display: flex;
+            flex-direction: column;
             align-items: center;
+            gap: 1rem;
+        }
+
+        .result-text-container {
+            text-align: center;
         }
 
         .result-text {
-            font-size: 2.5rem;
+            font-size: 3rem;
             font-weight: bold;
             margin: 1rem 0;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            letter-spacing: 2px;
         }
 
         .result-text.fake {
             color: #ff4d4d;
+            background: linear-gradient(135deg, #ff4d4d, #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .result-text.real {
             color: #4dff4d;
+            background: linear-gradient(135deg, #4dff4d, #6bff6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .confidence-text {
+            font-size: 1.2rem;
+            color: var(--text-light);
+            margin-top: 0.5rem;
+            font-weight: 500;
         }
 
         /* Analysis Details */
@@ -407,12 +437,161 @@
             cursor: not-allowed;
             transform: none;
         }
+
+        /* Feature Cards */
+        .feature-card {
+            background: var(--bg-darker);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 2rem;
+            margin: 2rem 0;
+        }
+
+        .confidence-section, .comparison-section {
+            background: var(--bg-darker);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 2rem;
+            margin: 2rem 0;
+        }
+
+        .success-message {
+            margin: 2rem 0;
+        }
+
+        /* Table Styles */
+        .comparison-table table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(100, 255, 218, 0.1);
+        }
+
+        .comparison-table th {
+            color: #64ffda;
+            font-weight: bold;
+        }
+
+        .comparison-table td {
+            color: #8892b0;
+        }
+
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Pie Chart Styles */
+        .pie-chart-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2rem;
+            padding: 2.5rem;
+            background: linear-gradient(135deg, rgba(100, 255, 218, 0.08) 0%, rgba(26, 26, 26, 0.9) 100%);
+            border: 1px solid rgba(100, 255, 218, 0.15);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .pie-chart-section h3 {
+            color: #64ffda;
+            margin: 0;
+            font-size: 1.8rem;
+            font-weight: 600;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .pie-chart-container {
+            position: relative;
+            width: 350px;
+            height: 350px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(26, 26, 26, 0.3);
+            border-radius: 50%;
+            padding: 20px;
+        }
+
+        #resultPieChart {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+            background: transparent;
+        }
+
+        .pie-chart-legend {
+            display: flex;
+            justify-content: center;
+            gap: 2.5rem;
+            margin-top: 2.5rem;
+            padding: 1.5rem;
+            background: rgba(26, 26, 26, 0.8);
+            border-radius: 12px;
+            border: 1px solid rgba(100, 255, 218, 0.15);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .legend-item:hover {
+            background: rgba(100, 255, 218, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .legend-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 6px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .real-color {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+        }
+
+        .fake-color {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+
+        .legend-text {
+            color: var(--text-light);
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
     </style>
 </head>
 <body>
     {% if data %}
     <script>
-        window.data = {{ data | safe }};
+        console.log('Template data received:', '{{ data | safe }}');
+        window.data = '{{ data | safe }}';
+        console.log('Window data set:', window.data);
+    </script>
+    {% else %}
+    <script>
+        console.log('No data received in template');
+        window.data = null;
     </script>
     {% endif %}
 
@@ -473,18 +652,6 @@
                             <p id="result-text" class="result-text" role="status" aria-live="polite"></p>
                             <p id="confidence-text" class="confidence-text" aria-live="polite"></p>
                         </div>
-                        <div class="analysis-graph">
-                            <img id="confidence-image" src="" alt="Confidence Graph">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Dataset Comparison Section -->
-                <div class="comparison-section feature-card">
-                    <h3>Model Performance Comparison</h3>
-                    <p class="comparison-description">Our model's accuracy compared to other datasets</p>
-                    <div class="comparison-graph">
-                        <img id="comparison-image" src="" alt="Dataset Comparison Graph">
                     </div>
                 </div>
 
@@ -493,10 +660,6 @@
                     <h3>Analysis Details</h3>
                     <div class="details-grid">
                         <div class="detail-item">
-                            <span class="detail-label">Frames Analyzed</span>
-                            <span id="frames-count" class="detail-value" aria-live="polite">0</span>
-                        </div>
-                        <div class="detail-item">
                             <span class="detail-label">Processing Time</span>
                             <span id="processing-time" class="detail-value" aria-live="polite">0s</span>
                         </div>
@@ -504,17 +667,30 @@
                             <span class="detail-label">Model Confidence</span>
                             <span id="model-confidence" class="detail-value" aria-live="polite">0%</span>
                         </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Analysis Method</span>
+                            <span class="detail-value">AI-Powered Deep Learning</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Frames Grid -->
-                <section class="frames-section" aria-labelledby="frames-heading">
-                    <h2 id="frames-heading" class="section-heading">Analyzed Frames</h2>
-                    <p class="frames-description">Key frames extracted and analyzed for manipulation patterns</p>
-                    <div class="frames-container" id="frames-grid" role="grid">
-                        <!-- Frames will be inserted here dynamically -->
+                <!-- Pie Chart Visualization -->
+                <div class="pie-chart-section feature-card">
+                    <h3>Result Distribution</h3>
+                    <div class="pie-chart-container">
+                        <canvas id="resultPieChart" width="350" height="350"></canvas>
+                        <div class="pie-chart-legend">
+                            <div class="legend-item">
+                                <span class="legend-color real-color"></span>
+                                <span class="legend-text">Real</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-color fake-color"></span>
+                                <span class="legend-text">Fake</span>
+                            </div>
+                        </div>
                     </div>
-                </section>
+                </div>
             </div>
         </main>
 
@@ -591,21 +767,33 @@
             });
 
             // Results handling
-            if (typeof window.data !== 'undefined') {
+            console.log('Checking for window.data:', typeof window.data, window.data);
+            if (typeof window.data !== 'undefined' && window.data !== null) {
                 try {
                     console.log('Raw data received:', window.data);
                     const parsedData = typeof window.data === 'string' ? JSON.parse(window.data) : window.data;
                     console.log('Parsed data:', parsedData);
                     
+                    // Check if required fields exist
+                    if (!parsedData.output || !parsedData.confidence || !parsedData.processing_time) {
+                        console.error('Missing required fields in parsed data:', parsedData);
+                        return;
+                    }
+                    
                     const resultsDiv = document.getElementById('results');
                     const resultText = document.getElementById('result-text');
                     const confidenceText = document.getElementById('confidence-text');
-                    const framesGrid = document.getElementById('frames-grid');
-                    const framesCount = document.getElementById('frames-count');
                     const modelConfidence = document.getElementById('model-confidence');
                     const processingTime = document.getElementById('processing-time');
-                    const confidenceImage = document.getElementById('confidence-image');
-                    const comparisonImage = document.getElementById('comparison-image');
+                    const pieChartCanvas = document.getElementById('resultPieChart');
+                    const realColor = document.querySelector('.real-color');
+                    const fakeColor = document.querySelector('.fake-color');
+
+                    console.log('Found DOM elements:', {
+                        resultsDiv: !!resultsDiv,
+                        resultText: !!resultText,
+                        confidenceText: !!confidenceText
+                    });
 
                     loadingContainer.style.display = 'none';
                     analyzeBtn.disabled = false;
@@ -616,28 +804,149 @@
                     resultText.className = `result-text ${parsedData.output.toLowerCase()}`;
                     confidenceText.textContent = `Confidence: ${parsedData.confidence.toFixed(2)}%`;
                     
+                    console.log('Updated result text:', resultText.textContent);
+                    console.log('Updated confidence text:', confidenceText.textContent);
+                    
                     // Update analysis details
-                    framesCount.textContent = '0'; // No frames extracted for memory optimization
                     modelConfidence.textContent = `${parsedData.confidence.toFixed(2)}%`;
                     processingTime.textContent = `${parsedData.processing_time}s`;
-
-                    // Hide graph images since we're not generating them
-                    if (confidenceImage) confidenceImage.style.display = 'none';
-                    if (comparisonImage) comparisonImage.style.display = 'none';
-
-                    // Hide frames grid since we're not extracting frames
-                    if (framesGrid) framesGrid.style.display = 'none';
 
                     // Add a success message
                     const successMessage = document.createElement('div');
                     successMessage.className = 'success-message';
                     successMessage.innerHTML = `
-                        <div style="text-align: center; padding: 20px; background: rgba(100, 255, 218, 0.1); border-radius: 8px; margin: 20px 0;">
-                            <h3 style="color: #64ffda; margin-bottom: 10px;">Analysis Complete!</h3>
-                            <p style="color: #8892b0;">Video processed successfully. Memory-optimized analysis completed.</p>
+                        <div style="text-align: center; padding: 20px; background: linear-gradient(135deg, rgba(100, 255, 218, 0.1) 0%, rgba(26, 26, 26, 0.8) 100%); border-radius: 12px; margin: 20px 0; border: 1px solid rgba(100, 255, 218, 0.2);">
+                            <h3 style="color: #64ffda; margin-bottom: 10px; font-size: 1.3rem;">✅ Analysis Complete!</h3>
+                            <p style="color: #8892b0; margin: 0; font-size: 1rem;">Video processed successfully using advanced AI deep learning technology.</p>
                         </div>
                     `;
                     resultsDiv.insertBefore(successMessage, resultsDiv.firstChild);
+
+                    // Update pie chart
+                    const ctx = pieChartCanvas.getContext('2d');
+                    
+                    // Calculate the data for the pie chart based on confidence
+                    const realPercentage = parsedData.output.toLowerCase() === 'real' ? parsedData.confidence : (100 - parsedData.confidence);
+                    const fakePercentage = parsedData.output.toLowerCase() === 'fake' ? parsedData.confidence : (100 - parsedData.confidence);
+                    
+                    console.log('Pie chart data:', { realPercentage, fakePercentage, output: parsedData.output });
+                    
+                    // Destroy existing chart if it exists
+                    if (window.resultChart) {
+                        window.resultChart.destroy();
+                    }
+                    
+                    // Ensure we have valid data
+                    const chartData = [realPercentage, fakePercentage];
+                    if (chartData.some(val => isNaN(val) || val < 0)) {
+                        console.error('Invalid chart data:', chartData);
+                        // Show fallback display
+                        pieChartCanvas.style.display = 'none';
+                        const fallbackDiv = document.createElement('div');
+                        fallbackDiv.innerHTML = `
+                            <div style="text-align: center; padding: 40px; color: #8892b0;">
+                                <h4 style="color: #64ffda; margin-bottom: 20px;">Result Distribution</h4>
+                                <div style="font-size: 2rem; font-weight: bold; color: ${parsedData.output.toLowerCase() === 'real' ? '#27ae60' : '#e74c3c'};">
+                                    ${parsedData.output}
+                                </div>
+                                <div style="font-size: 1.2rem; margin-top: 10px;">
+                                    Confidence: ${parsedData.confidence.toFixed(1)}%
+                                </div>
+                            </div>
+                        `;
+                        pieChartCanvas.parentNode.appendChild(fallbackDiv);
+                        return;
+                    }
+                    
+                    try {
+                        window.resultChart = new Chart(ctx, {
+                            type: 'doughnut',
+                            data: {
+                                labels: ['Real', 'Fake'],
+                                datasets: [{
+                                    data: chartData,
+                                    backgroundColor: [
+                                        '#27ae60', // Real color
+                                        '#e74c3c'  // Fake color
+                                    ],
+                                    borderWidth: 4,
+                                    borderColor: '#1a1a1a',
+                                    hoverBorderWidth: 6,
+                                    hoverBorderColor: '#64ffda'
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                cutout: '65%',
+                                plugins: {
+                                    legend: {
+                                        display: false // Hide default legend
+                                    },
+                                    tooltip: {
+                                        enabled: true,
+                                        backgroundColor: 'rgba(26, 26, 26, 0.95)',
+                                        titleColor: '#64ffda',
+                                        bodyColor: '#8892b0',
+                                        borderColor: '#64ffda',
+                                        borderWidth: 2,
+                                        cornerRadius: 8,
+                                        displayColors: false,
+                                        callbacks: {
+                                            title: function(tooltipItems) {
+                                                return tooltipItems[0].label;
+                                            },
+                                            label: function(context) {
+                                                return context.parsed.toFixed(1) + '%';
+                                            }
+                                        }
+                                    }
+                                },
+                                animation: {
+                                    animateRotate: true,
+                                    duration: 1500,
+                                    easing: 'easeInOutQuart'
+                                },
+                                elements: {
+                                    arc: {
+                                        borderWidth: 4
+                                    }
+                                }
+                            }
+                        });
+                        
+                        console.log('Chart created successfully');
+                    } catch (chartError) {
+                        console.error('Error creating chart:', chartError);
+                        // Show fallback display
+                        pieChartCanvas.style.display = 'none';
+                        const fallbackDiv = document.createElement('div');
+                        fallbackDiv.innerHTML = `
+                            <div style="text-align: center; padding: 40px; color: #8892b0;">
+                                <h4 style="color: #64ffda; margin-bottom: 20px;">Result Distribution</h4>
+                                <div style="font-size: 2rem; font-weight: bold; color: ${parsedData.output.toLowerCase() === 'real' ? '#27ae60' : '#e74c3c'};">
+                                    ${parsedData.output}
+                                </div>
+                                <div style="font-size: 1.2rem; margin-top: 10px;">
+                                    Confidence: ${parsedData.confidence.toFixed(1)}%
+                                </div>
+                            </div>
+                        `;
+                        pieChartCanvas.parentNode.appendChild(fallbackDiv);
+                    }
+
+                    // Update legend colors and text
+                    if (realColor && fakeColor) {
+                        realColor.style.background = 'linear-gradient(135deg, #27ae60, #2ecc71)';
+                        fakeColor.style.background = 'linear-gradient(135deg, #e74c3c, #c0392b)';
+                    }
+                    
+                    // Update legend text to show percentages
+                    const legendTexts = document.querySelectorAll('.legend-text');
+                    if (legendTexts.length >= 2) {
+                        legendTexts[0].textContent = `Real (${realPercentage.toFixed(1)}%)`;
+                        legendTexts[1].textContent = `Fake (${fakePercentage.toFixed(1)}%)`;
+                    }
 
                 } catch (error) {
                     console.error('Error parsing data:', error);

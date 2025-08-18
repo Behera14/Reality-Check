@@ -427,10 +427,23 @@ def detect():
             }
             
             logger.info(f"Sending response data: {data}")
-            data = json.dumps(data)
+            logger.info(f"Data type: {type(data)}")
+            data_json = json.dumps(data)
+            logger.info(f"JSON data: {data_json}")
             
             os.remove(video_path)
-            return render_template('detect.html', data=data)
+            
+            # Add debug logging for template rendering
+            logger.info("About to render template with data")
+            try:
+                result = render_template('detect.html', data=data_json)
+                logger.info("Template rendered successfully")
+                return result
+            except Exception as template_error:
+                logger.error(f"Template rendering error: {str(template_error)}")
+                traceback.print_exc()
+                # Fallback: return data as JSON response
+                return jsonify(data)
             
         except Exception as e:
             # Clean up video file if it exists
@@ -469,8 +482,12 @@ class DFModel(torch.nn.Module):
         self.dp = torch.nn.Dropout(0.4)
 
     def forward(self, x):
-       # Assuming 'x' is 4D, e.g., [batch_size, channels, height, width]
-        x = x.unsqueeze(1)  # Adding sequence length dimension (1 for single image)
+        # Handle both 4D and 5D inputs for compatibility
+        if len(x.shape) == 4:
+            # 4D input: [batch_size, channels, height, width] - add sequence dimension
+            x = x.unsqueeze(1)  # Adding sequence length dimension (1 for single image)
+        
+        # Now x is 5D: [batch_size, seq_length, c, h, w]
         batch_size, seq_length, c, h, w = x.shape
         x = x.view(batch_size * seq_length, c, h, w)
         fmap = self.model(x)
