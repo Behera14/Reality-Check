@@ -45,7 +45,6 @@ import matplotlib
 matplotlib.use('Agg')
 from matplotlib.colors import LinearSegmentedColormap
 from huggingface_hub import hf_hub_download
-from fastapi import FastAPI, UploadFile, File
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
