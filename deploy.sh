@@ -1,56 +1,68 @@
 #!/bin/bash
 
-echo "🚀 DeepFake Detection App - Deployment Script"
+# Deepfake Detection App - Quick Deploy Script
+# This script helps you deploy your app to Railway via GitLab
+
+echo "🚀 Deepfake Detection App - Deployment Script"
 echo "=============================================="
 
-# Check if git is initialized
+# Check if git is installed
+if ! command -v git &> /dev/null; then
+    echo "❌ Git is not installed. Please install Git first."
+    exit 1
+fi
+
+# Check if Railway CLI is installed
+if ! command -v railway &> /dev/null; then
+    echo "📦 Installing Railway CLI..."
+    npm install -g @railway/cli
+fi
+
+# Check if user is logged into Railway
+if ! railway whoami &> /dev/null; then
+    echo "🔐 Please login to Railway:"
+    railway login
+fi
+
+echo "✅ Prerequisites check passed!"
+
+# Check if we're in a git repository
 if [ ! -d ".git" ]; then
-    echo "❌ Git repository not found. Please initialize git first:"
+    echo "❌ Not in a git repository. Please initialize git first:"
     echo "   git init"
     echo "   git add ."
     echo "   git commit -m 'Initial commit'"
     exit 1
 fi
 
-# Check if remote is set
-if ! git remote get-url origin > /dev/null 2>&1; then
-    echo "❌ No remote repository found. Please add your GitHub repository:"
-    echo "   git remote add origin https://github.com/yourusername/yourrepo.git"
+# Check if we have a remote origin
+if ! git remote get-url origin &> /dev/null; then
+    echo "❌ No GitLab remote found. Please add your GitLab repository:"
+    echo "   git remote add origin <your-gitlab-repo-url>"
     exit 1
 fi
 
-echo "✅ Git repository configured"
-
-# Check if all required files exist
-required_files=("server.py" "requirements.txt" "Dockerfile" "render.yaml" "wsgi.py")
-for file in "${required_files[@]}"; do
-    if [ ! -f "$file" ]; then
-        echo "❌ Missing required file: $file"
-        exit 1
-    fi
-done
-
-echo "✅ All required files present"
-
-# Push to GitHub
-echo "📤 Pushing to GitHub..."
-git add .
-git commit -m "Deploy to Render - $(date)"
-git push origin main
-
+echo "📋 Deployment Steps:"
+echo "===================="
 echo ""
-echo "🎉 Code pushed to GitHub!"
+echo "1. 🚂 Push to GitLab:"
+echo "   git push origin main"
 echo ""
-echo "📋 Next Steps:"
-echo "1. Go to https://render.com"
-echo "2. Sign up/Login with GitHub"
-echo "3. Click 'New +' → 'Web Service'"
-echo "4. Connect your repository"
-echo "5. Configure:"
-echo "   - Name: deepfake-detector"
-echo "   - Environment: Docker"
-echo "   - Branch: main"
-echo "6. Click 'Create Web Service'"
+echo "2. 🔧 Set up Railway project:"
+echo "   railway init"
+echo "   railway link"
 echo ""
-echo "⏱️  Build time: 5-10 minutes"
-echo "🌐 Your app will be available at: https://your-app-name.onrender.com" 
+echo "3. 🔐 Add environment variables in Railway dashboard:"
+echo "   FLASK_ENV=production"
+echo "   SECRET_KEY=your-super-secret-key-here"
+echo "   PORT=10000"
+echo ""
+echo "4. 🎯 Deploy:"
+echo "   railway up"
+echo ""
+echo "5. 🔗 Get your deployment URL:"
+echo "   railway status"
+echo ""
+echo "📚 For detailed instructions, see DEPLOYMENT.md"
+echo ""
+echo "🎉 Happy deploying!" 

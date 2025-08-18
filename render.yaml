@@ -1,10 +1,9 @@
 services:
   - type: web
-    name: deepfake-detector
+    name: my-app
     env: docker
     plan: free
-    dockerfilePath: ./Dockerfile.minimal
-    healthCheckPath: /
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: PORT
         value: 10000
@@ -13,17 +12,13 @@ services:
       - key: KMP_DUPLICATE_LIB_OK
         value: "True"
       - key: OMP_NUM_THREADS
-        value: 2
+        value: 4
       - key: MKL_NUM_THREADS
-        value: 2
+        value: 4
       - key: OPENBLAS_NUM_THREADS
-        value: 2
+        value: 4
       - key: NUMEXPR_NUM_THREADS
-        value: 2
+        value: 4
       - key: VECLIB_MAXIMUM_THREADS
-        value: 2
-      - key: FLASK_ENV
-        value: production
-      - key: PYTHONUNBUFFERED
-        value: 1
+        value: 4
 

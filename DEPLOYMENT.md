@@ -1,137 +1,207 @@
-# DeepFake Detection App - Deployment Guide
+# Deepfake Detection App - Deployment Guide
 
-## 🚀 Recommended Platform: Render (Free)
+## 🚀 Recommended Platform: Railway
 
-### Why Render?
-- ✅ Free tier available
-- ✅ Docker support
-- ✅ Persistent storage
-- ✅ Good for ML applications
-- ✅ Easy deployment
+This application is optimized for deployment on **Railway** due to its ML-friendly infrastructure and GitLab integration.
 
-### Deployment Steps:
+## 📋 Prerequisites
 
-1. **Sign up for Render**
-   - Go to [render.com](https://render.com)
-   - Sign up with GitHub account
+1. **GitLab Account** with your repository
+2. **Railway Account** (free tier available)
+3. **Railway CLI** installed locally
 
-2. **Connect Repository**
-   - Click "New +" → "Web Service"
-   - Connect your GitHub repository
-   - Select the repository
+## 🔧 Setup Instructions
 
-3. **Configure Service**
-   - **Name**: `deepfake-detector`
-   - **Environment**: `Docker`
-   - **Region**: Choose closest to you
-   - **Branch**: `main` (or your default branch)
-   - **Root Directory**: Leave empty (if app is in root)
+### Step 1: Railway Setup
 
-4. **Environment Variables** (Optional - already in render.yaml)
-   - `PORT`: `10000`
-   - `MEDIAPIPE_DISABLE_GPU`: `1`
-   - `FLASK_ENV`: `production`
+1. **Create Railway Account**
+   ```bash
+   # Install Railway CLI
+   npm install -g @railway/cli
+   
+   # Login to Railway
+   railway login
+   ```
 
-5. **Deploy**
-   - Click "Create Web Service"
-   - Wait for build to complete (5-10 minutes)
+2. **Create New Project**
+   ```bash
+   # Initialize Railway project
+   railway init
+   
+   # Link to existing project (if created via web)
+   railway link
+   ```
 
-## 🔧 Alternative Platforms
+### Step 2: Environment Variables
 
-### Google Cloud Run (Free Tier)
+Set these environment variables in Railway dashboard:
+
 ```bash
-# Install Google Cloud CLI
-gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
-
-# Build and deploy
-gcloud run deploy deepfake-detector \
-  --source . \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated
+FLASK_ENV=production
+SECRET_KEY=your-super-secret-key-here
+PORT=10000
 ```
 
-### Fly.io (Free Tier)
-```bash
-# Install flyctl
-curl -L https://fly.io/install.sh | sh
+### Step 3: GitLab CI/CD Setup
 
-# Deploy
-fly launch
-fly deploy
+1. **Add Railway Token to GitLab**
+   - Go to GitLab → Settings → CI/CD → Variables
+   - Add variable: `RAILWAY_TOKEN` (get from Railway dashboard)
+
+2. **Configure GitLab Repository**
+   ```bash
+   # Push your code to GitLab
+   git add .
+   git commit -m "Add deployment configuration"
+   git push origin main
+   ```
+
+### Step 4: Deploy
+
+1. **Manual Deployment**
+   ```bash
+   # Deploy directly from CLI
+   railway up
+   ```
+
+2. **Automatic Deployment via GitLab**
+   - Go to GitLab → CI/CD → Pipelines
+   - Run the deployment pipeline manually
+   - Or it will auto-deploy on main branch pushes
+
+## 🏗️ Architecture Overview
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   GitLab Repo   │───▶│  GitLab CI/CD   │───▶│   Railway App   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                              │                        │
+                              ▼                        ▼
+                       ┌─────────────────┐    ┌─────────────────┐
+                       │   Test Stage    │    │  Production     │
+                       │   (PyTorch,     │    │  Environment    │
+                       │   MediaPipe)    │    │                 │
+                       └─────────────────┘    └─────────────────┘
 ```
 
-### Heroku (Paid - $7/month)
-```bash
-# Install Heroku CLI
-heroku create deepfake-detector
-git push heroku main
-```
+## 📁 File Structure
 
-## 📁 File Structure for Deployment
 ```
-├── server.py              # Main Flask app
+├── server.py              # Main Flask application
 ├── models.py              # Database models
 ├── requirements.txt       # Python dependencies
-├── Dockerfile            # Docker configuration
-├── render.yaml           # Render configuration
-├── wsgi.py              # WSGI entry point
-├── templates/            # HTML templates
-├── static/              # Static files
-└── .dockerignore        # Docker ignore file
+├── Dockerfile            # Container configuration
+├── .gitlab-ci.yml        # GitLab CI/CD pipeline
+├── railway.json          # Railway configuration
+├── Procfile             # Railway process file
+├── runtime.txt          # Python version
+├── templates/           # HTML templates
+├── static/              # Static files (CSS, JS, images)
+├── Uploaded_Files/      # Temporary uploads
+└── instance/            # SQLite database
 ```
 
-## 🔍 Troubleshooting
+## 🔍 Monitoring & Logs
 
-### Common Issues:
+### Railway Dashboard
+- **Logs**: Real-time application logs
+- **Metrics**: CPU, memory, network usage
+- **Deployments**: Deployment history and rollbacks
 
-1. **Build Fails**
-   - Check `requirements.txt` for version conflicts
-   - Ensure all dependencies are compatible
+### GitLab CI/CD
+- **Pipeline Status**: Build and test results
+- **Artifacts**: Test reports and build artifacts
+- **Variables**: Environment configuration
 
-2. **App Crashes on Startup**
-   - Check logs in Render dashboard
-   - Verify environment variables
+## 🚨 Troubleshooting
 
-3. **Memory Issues**
-   - Reduce thread counts in render.yaml
-   - Optimize ML model loading
+### Common Issues
 
-4. **File Upload Issues**
-   - Ensure directories exist and have proper permissions
-   - Check file size limits
+1. **Build Failures**
+   ```bash
+   # Check Docker build locally
+   docker build -t deepfake-app .
+   docker run -p 10000:10000 deepfake-app
+   ```
 
-### Performance Optimization:
+2. **Memory Issues**
+   - Increase Railway instance size
+   - Optimize model loading (lazy loading)
 
-1. **For Render Free Tier:**
-   - Reduced thread counts to 2 (already configured)
-   - Single worker in Gunicorn
-   - Optimized Docker image
+3. **Timeout Issues**
+   - Increase healthcheck timeout in railway.json
+   - Optimize video processing
 
-2. **For Production:**
-   - Upgrade to paid plan for more resources
-   - Add Redis for session management
-   - Use CDN for static files
+### Performance Optimization
 
-## 🌐 Access Your App
+1. **Model Caching**
+   ```python
+   # Cache model in memory
+   model = None
+   
+   def get_model():
+       global model
+       if model is None:
+           model = load_model()
+       return model
+   ```
 
-After deployment, your app will be available at:
-- Render: `https://your-app-name.onrender.com`
-- Google Cloud Run: `https://your-app-name-xxxxx-uc.a.run.app`
-- Fly.io: `https://your-app-name.fly.dev`
-- Heroku: `https://your-app-name.herokuapp.com`
+2. **File Cleanup**
+   ```python
+   # Clean up temporary files
+   import atexit
+   atexit.register(cleanup_temp_files)
+   ```
 
-## 📊 Monitoring
+## 🔒 Security Considerations
 
-- **Render**: Built-in logs and metrics
-- **Google Cloud**: Cloud Monitoring
-- **Fly.io**: Built-in monitoring
-- **Heroku**: Heroku Metrics
+1. **Environment Variables**
+   - Never commit secrets to Git
+   - Use Railway's secure environment variables
 
-## 🔒 Security Notes
+2. **File Upload Security**
+   - Validate file types and sizes
+   - Clean up uploaded files
 
-- Change `SECRET_KEY` in production
-- Use environment variables for sensitive data
-- Enable HTTPS (automatic on most platforms)
-- Regular dependency updates 
+3. **Database Security**
+   - Use production database (PostgreSQL on Railway)
+   - Regular backups
+
+## 📊 Scaling
+
+### Railway Scaling Options
+
+1. **Vertical Scaling**
+   - Increase CPU/memory allocation
+   - Enable auto-scaling
+
+2. **Horizontal Scaling**
+   - Multiple instances
+   - Load balancing
+
+### Cost Optimization
+
+1. **Free Tier Limits**
+   - 500 hours/month
+   - 1GB RAM, 0.5 vCPU
+
+2. **Paid Plans**
+   - Pay-per-use pricing
+   - Auto-scaling capabilities
+
+## 🆘 Support
+
+- **Railway Docs**: https://docs.railway.app/
+- **GitLab CI/CD**: https://docs.gitlab.com/ee/ci/
+- **Flask Deployment**: https://flask.palletsprojects.com/en/2.3.x/deploying/
+
+## 📝 Deployment Checklist
+
+- [ ] Railway account created
+- [ ] Environment variables set
+- [ ] GitLab repository configured
+- [ ] CI/CD pipeline working
+- [ ] Application deployed successfully
+- [ ] Health checks passing
+- [ ] Domain configured (optional)
+- [ ] SSL certificate enabled (automatic on Railway) 
