@@ -3,7 +3,7 @@ services:
     name: deepfake-detector
     env: docker
     plan: free
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./Dockerfile.minimal
     healthCheckPath: /
     envVars:
       - key: PORT
