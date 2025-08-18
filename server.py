@@ -265,6 +265,8 @@ def detectFakeVideo(videoPath):
     start_time = time.time()
     
     try:
+        logger.info(f"Starting video analysis for: {videoPath}")
+        
         im_size = 112
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
@@ -276,16 +278,20 @@ def detectFakeVideo(videoPath):
             transforms.Normalize(mean,std)
         ])
         
+        logger.info("Creating video dataset...")
         path_to_videos = [videoPath]
         video_dataset = validation_dataset(path_to_videos, sequence_length=20, transform=train_transforms)
         
+        logger.info("Getting model...")
         # Use the lazy-loaded model instead of creating a new one
         model, _ = get_model()
         
+        logger.info("Running prediction...")
         prediction = predict(model, video_dataset[0], './')
         
         processing_time = time.time() - start_time
         logger.info(f"Video processing completed in {processing_time:.2f} seconds")
+        logger.info(f"Prediction result: {prediction}")
         
         return prediction, processing_time
     except Exception as e:
@@ -400,22 +406,8 @@ def detect():
             if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
                 raise Exception("Video file is empty or corrupted")
             
-            # Add timeout for processing
-            import signal
-            
-            def timeout_handler(signum, frame):
-                raise TimeoutError("Video processing timed out")
-            
-            # Set timeout to 5 minutes
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(300)  # 5 minutes timeout
-            
-            try:
-                prediction, processing_time = detectFakeVideo(video_path)
-                signal.alarm(0)  # Cancel timeout
-            except TimeoutError:
-                signal.alarm(0)  # Cancel timeout
-                raise Exception("Video processing timed out. Please try with a shorter video.")
+            # Process video without signal-based timeout
+            prediction, processing_time = detectFakeVideo(video_path)
             
             if prediction is None or len(prediction) < 2:
                 raise Exception("Model prediction failed")
