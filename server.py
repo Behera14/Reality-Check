@@ -310,6 +310,14 @@ def get_datasets():
 def serve_static(filename):
     return send_from_directory('static', filename)
 
+@app.route('/health')
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.datetime.now().isoformat(),
+        'model_loaded': _model is not None
+    })
+
 @app.route('/')
 def homepage():
     return render_template('home.html')
@@ -363,28 +371,51 @@ def detect():
     if request.method == 'GET':
         return render_template('detect.html')
     if request.method == 'POST':
-        if 'video' not in request.files:
-            return render_template('detect.html', error="No video file uploaded")
-            
-        video = request.files['video']
-        if video.filename == '':
-            return render_template('detect.html', error="No video file selected")
-            
-        if not video.filename.lower().endswith(('.mp4', '.avi', '.mov')):
-            return render_template('detect.html', error="Invalid file format. Please upload MP4, AVI, or MOV files.")
-            
-        video_filename = secure_filename(video.filename)
-        video_path = os.path.join(app.config['UPLOAD_FOLDER'], video_filename)
-        video.save(video_path)
-        
         try:
-            logger.info(f"Processing video: {video_filename}")
+            if 'video' not in request.files:
+                return render_template('detect.html', error="No video file uploaded")
+                
+            video = request.files['video']
+            if video.filename == '':
+                return render_template('detect.html', error="No video file selected")
+                
+            if not video.filename.lower().endswith(('.mp4', '.avi', '.mov')):
+                return render_template('detect.html', error="Invalid file format. Please upload MP4, AVI, or MOV files.")
+            
+            # Check file size (limit to 100MB)
+            video.seek(0, 2)  # Seek to end
+            file_size = video.tell()
+            video.seek(0)  # Reset to beginning
+            
+            if file_size > 100 * 1024 * 1024:  # 100MB limit
+                return render_template('detect.html', error="File too large. Please upload a video smaller than 100MB.")
+                
+            video_filename = secure_filename(video.filename)
+            video_path = os.path.join(app.config['UPLOAD_FOLDER'], video_filename)
+            video.save(video_path)
+            
+            logger.info(f"Processing video: {video_filename} (size: {file_size} bytes)")
             
             # Check if video file exists and has content
             if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
                 raise Exception("Video file is empty or corrupted")
             
-            prediction, processing_time = detectFakeVideo(video_path)
+            # Add timeout for processing
+            import signal
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Video processing timed out")
+            
+            # Set timeout to 5 minutes
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(300)  # 5 minutes timeout
+            
+            try:
+                prediction, processing_time = detectFakeVideo(video_path)
+                signal.alarm(0)  # Cancel timeout
+            except TimeoutError:
+                signal.alarm(0)  # Cancel timeout
+                raise Exception("Video processing timed out. Please try with a shorter video.")
             
             if prediction is None or len(prediction) < 2:
                 raise Exception("Model prediction failed")
@@ -410,12 +441,21 @@ def detect():
             return render_template('detect.html', data=data)
             
         except Exception as e:
-            if os.path.exists(video_path):
+            # Clean up video file if it exists
+            if 'video_path' in locals() and os.path.exists(video_path):
                 os.remove(video_path)
+            
             error_msg = str(e)
             logger.error(f"Error processing video: {error_msg}")
             traceback.print_exc()
-            return render_template('detect.html', error=f"Error processing video: {error_msg}")
+            
+            # Return a more user-friendly error message
+            if "timeout" in error_msg.lower():
+                return render_template('detect.html', error="Processing took too long. Please try with a shorter video (under 30 seconds).")
+            elif "memory" in error_msg.lower():
+                return render_template('detect.html', error="Video too large. Please try with a smaller video file.")
+            else:
+                return render_template('detect.html', error=f"Error processing video: {error_msg}")
 
 @app.route('/privacy')
 def privacy():
@@ -454,20 +494,27 @@ _transform = None
 def get_model():
     global _model, _transform
     if _model is None:
-        # ✅ Load model from Hugging Face
-        model_path = hf_hub_download(repo_id="imtiyaz123/DF_Model", filename="df_model.pt")
-        
-        # ✅ Initialize model and load weights properly
-        _model = DFModel()
-        _model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-        _model.eval()
-        
-        # ✅ Image transformation
-        _transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        try:
+            logger.info("Loading model from Hugging Face Hub...")
+            # ✅ Load model from Hugging Face
+            model_path = hf_hub_download(repo_id="imtiyaz123/DF_Model", filename="df_model.pt")
+            
+            # ✅ Initialize model and load weights properly
+            _model = DFModel()
+            _model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+            _model.eval()
+            
+            # ✅ Image transformation
+            _transform = transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ])
+            
+            logger.info("Model loaded successfully!")
+        except Exception as e:
+            logger.error(f"Error loading model: {str(e)}")
+            raise
     
     return _model, _transform
 
