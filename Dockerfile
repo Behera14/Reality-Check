@@ -20,18 +20,18 @@ RUN apt-get update -y && \
     apt-get install -y \
     libopenblas-dev \
     liblapack-dev \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libx11-6 \
     libxext6 \
     libxrender1 \
     libxinerama1 \
     libxi6 \
-    mesa-common-dev \
-    libegl1-mesa \
-    libegl1-mesa-dev \
+    libglu1-mesa \
+    libglu1-mesa-dev \
     gcc \
     g++ \
+    curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
