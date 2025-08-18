@@ -15,6 +15,16 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 
+# Additional MediaPipe and GPU suppression
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
+os.environ['CUDA_VISIBLE_DEVICES'] = ''  # Disable CUDA
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations
+
+# Suppress MediaPipe GPU warnings
+import logging
+logging.getLogger('mediapipe').setLevel(logging.ERROR)
+logging.getLogger('absl').setLevel(logging.ERROR)
+
 import torch
 import torchvision
 from torchvision import transforms
@@ -32,13 +42,27 @@ from PIL import Image
 # Initialize MediaPipe Face Mesh for CPU
 mp_face_mesh = mp.solutions.face_mesh
 mp_drawing = mp.solutions.drawing_utils
-face_mesh = mp_face_mesh.FaceMesh(
-    static_image_mode=True,
-    max_num_faces=1,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5,
-    refine_landmarks=False  # Disable GPU-dependent feature
-)
+
+# Initialize MediaPipe with CPU-only configuration
+try:
+    face_mesh = mp_face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=1,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+        refine_landmarks=False  # Disable GPU-dependent feature
+    )
+    logger.info("MediaPipe Face Mesh initialized successfully")
+except Exception as e:
+    logger.warning(f"MediaPipe initialization warning (non-critical): {e}")
+    # Fallback configuration
+    face_mesh = mp_face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=1,
+        min_detection_confidence=0.3,
+        min_tracking_confidence=0.3,
+        refine_landmarks=False
+    )
 import logging
 import zipfile
 from torch import nn
@@ -569,8 +593,30 @@ def image_detect():
     return render_template('image.html')
 
 if __name__ == '__main__':
+    # Production configuration
+    import warnings
+    warnings.filterwarnings("ignore")
+    
+    # Suppress all GPU-related warnings
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    
+    # Configure logging for production
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Suppress specific loggers
+    logging.getLogger('mediapipe').setLevel(logging.ERROR)
+    logging.getLogger('absl').setLevel(logging.ERROR)
+    logging.getLogger('tensorflow').setLevel(logging.ERROR)
+    
     port = int(os.environ.get('PORT', 10000))
     debug = os.environ.get('FLASK_ENV') == 'development'
+    
+    logger.info(f"Starting DeepFake Detection App on port {port}")
+    logger.info("Production mode: GPU disabled, CPU-only processing")
     
     # For Render deployment, bind to 0.0.0.0
     app.run(host="0.0.0.0", port=port, debug=debug, threaded=True)

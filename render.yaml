@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python server.py
+    startCommand: python start_production.py
     envVars:
       - key: FLASK_ENV
         value: production
@@ -16,6 +16,22 @@ services:
         value: "1"
       - key: KMP_DUPLICATE_LIB_OK
         value: "True"
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "3"
+      - key: CUDA_VISIBLE_DEVICES
+        value: ""
+      - key: TF_ENABLE_ONEDNN_OPTS
+        value: "0"
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: MKL_NUM_THREADS
+        value: "1"
+      - key: OPENBLAS_NUM_THREADS
+        value: "1"
+      - key: NUMEXPR_NUM_THREADS
+        value: "1"
+      - key: VECLIB_MAXIMUM_THREADS
+        value: "1"
     healthCheckPath: /
     autoDeploy: true
 
