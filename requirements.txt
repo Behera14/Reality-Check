@@ -8,6 +8,9 @@ MarkupSafe==2.1.4
 itsdangerous==2.1.2
 click==8.1.7
 
+# HTTP requests for URL video download
+requests==2.31.0
+
 # AI/ML dependencies
 torch==2.1.2
 torchvision==0.16.2

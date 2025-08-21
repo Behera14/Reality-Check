@@ -600,7 +600,8 @@
             <a href="{{ url_for('homepage') }}" class="navbar-brand">DeepFake Detection</a>
             <div class="navbar-nav">
                 {% if current_user.is_authenticated %}
-                    <a href="{{ url_for('detect') }}" class="nav-link active">Detect</a>
+                    <a href="{{ url_for('detect') }}" class="nav-link active">Upload Video</a>
+                    <a href="{{ url_for('url_detect') }}" class="nav-link">URL Analysis</a>
                     {% if current_user.is_admin %}
                         <a href="{{ url_for('admin') }}" class="nav-link">Admin</a>
                     {% endif %}
@@ -683,7 +684,7 @@
                             <div class="legend-item">
                                 <span class="legend-color real-color"></span>
                                 <span class="legend-text">Real</span>
-                            </div>
+                    </div>
                             <div class="legend-item">
                                 <span class="legend-color fake-color"></span>
                                 <span class="legend-text">Fake</span>
@@ -848,12 +849,12 @@
                                 <h4 style="color: #64ffda; margin-bottom: 20px;">Result Distribution</h4>
                                 <div style="font-size: 2rem; font-weight: bold; color: ${parsedData.output.toLowerCase() === 'real' ? '#27ae60' : '#e74c3c'};">
                                     ${parsedData.output}
-                                </div>
+                            </div>
                                 <div style="font-size: 1.2rem; margin-top: 10px;">
                                     Confidence: ${parsedData.confidence.toFixed(1)}%
-                                </div>
                             </div>
-                        `;
+                        </div>
+                    `;
                         pieChartCanvas.parentNode.appendChild(fallbackDiv);
                         return;
                     }
@@ -926,12 +927,12 @@
                                 <h4 style="color: #64ffda; margin-bottom: 20px;">Result Distribution</h4>
                                 <div style="font-size: 2rem; font-weight: bold; color: ${parsedData.output.toLowerCase() === 'real' ? '#27ae60' : '#e74c3c'};">
                                     ${parsedData.output}
-                                </div>
+                        </div>
                                 <div style="font-size: 1.2rem; margin-top: 10px;">
                                     Confidence: ${parsedData.confidence.toFixed(1)}%
                                 </div>
-                            </div>
-                        `;
+                        </div>
+                    `;
                         pieChartCanvas.parentNode.appendChild(fallbackDiv);
                     }
 

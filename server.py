@@ -39,6 +39,9 @@ import uuid
 import sys
 import traceback
 from PIL import Image
+import requests
+from urllib.parse import urlparse
+import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -404,6 +407,143 @@ def test_endpoint():
         'message': 'Server is running',
         'timestamp': datetime.datetime.now().isoformat()
     })
+
+# Add URL validation function
+def is_valid_video_url(url):
+    """Check if the URL is a valid video URL"""
+    try:
+        parsed = urlparse(url)
+        if not parsed.scheme or not parsed.netloc:
+            return False
+        
+        # Check if it's a supported video platform
+        supported_domains = [
+            'youtube.com', 'youtu.be', 'vimeo.com', 'dailymotion.com',
+            'facebook.com', 'instagram.com', 'twitter.com', 'tiktok.com'
+        ]
+        
+        domain = parsed.netloc.lower()
+        return any(supported in domain for supported in supported_domains)
+    except:
+        return False
+
+def download_video_from_url(url):
+    """Download video from URL and return the file path"""
+    try:
+        logger.info(f"Downloading video from URL: {url}")
+        
+        # Set headers to mimic a browser request
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        # Download the video
+        response = requests.get(url, headers=headers, stream=True, timeout=30)
+        response.raise_for_status()
+        
+        # Check content type
+        content_type = response.headers.get('content-type', '').lower()
+        if not any(video_type in content_type for video_type in ['video/', 'application/octet-stream']):
+            logger.warning(f"Content type may not be video: {content_type}")
+        
+        # Create temporary file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+        temp_path = temp_file.name
+        
+        # Download in chunks to handle large files
+        total_size = 0
+        max_size = 100 * 1024 * 1024  # 100MB limit
+        
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                total_size += len(chunk)
+                if total_size > max_size:
+                    temp_file.close()
+                    os.unlink(temp_path)
+                    raise Exception("Video file too large (max 100MB)")
+                temp_file.write(chunk)
+        
+        temp_file.close()
+        logger.info(f"Video downloaded successfully: {temp_path} ({total_size} bytes)")
+        return temp_path
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error downloading video: {e}")
+        raise Exception(f"Failed to download video: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error downloading video: {e}")
+        raise Exception(f"Error downloading video: {str(e)}")
+
+@app.route('/url-detect', methods=['GET', 'POST'])
+@login_required
+def url_detect():
+    """Handle URL-based video detection"""
+    if request.method == 'GET':
+        return render_template('url_detect.html')
+    
+    if request.method == 'POST':
+        try:
+            video_url = request.form.get('video_url', '').strip()
+            
+            if not video_url:
+                return render_template('url_detect.html', error="Please enter a video URL")
+            
+            logger.info(f"Processing video URL: {video_url}")
+            
+            # Validate URL
+            if not is_valid_video_url(video_url):
+                return render_template('url_detect.html', error="Please enter a valid video URL from supported platforms")
+            
+            # Download video
+            try:
+                video_path = download_video_from_url(video_url)
+            except Exception as e:
+                return render_template('url_detect.html', error=f"Failed to download video: {str(e)}")
+            
+            # Process video
+            try:
+                logger.info("Starting video analysis from URL...")
+                prediction, processing_time = detectFakeVideo(video_path)
+                
+                logger.info(f"Analysis completed. Prediction: {prediction}, Time: {processing_time}")
+                
+                if prediction is None or len(prediction) < 2:
+                    raise Exception("Model prediction failed")
+                
+                if prediction[0] == 0:
+                    output = "FAKE"
+                else:
+                    output = "REAL"
+                confidence = prediction[1]
+                
+                logger.info(f"Video prediction: {output} with confidence {confidence}%")
+                
+                data = {
+                    'output': output, 
+                    'confidence': confidence,
+                    'processing_time': round(processing_time, 2),
+                    'source_url': video_url
+                }
+                
+                logger.info(f"Sending response data: {data}")
+                data_json = json.dumps(data)
+                
+                # Clean up temporary file
+                if os.path.exists(video_path):
+                    os.unlink(video_path)
+                
+                return render_template('url_detect.html', data=data_json)
+                
+            except Exception as e:
+                # Clean up temporary file
+                if 'video_path' in locals() and os.path.exists(video_path):
+                    os.unlink(video_path)
+                raise e
+                
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error processing video URL: {error_msg}")
+            return render_template('url_detect.html', error=f"Error processing video: {error_msg}")
 
 @app.route('/detect', methods=['GET', 'POST'])
 @login_required
