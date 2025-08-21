@@ -42,6 +42,7 @@ from PIL import Image
 import requests
 from urllib.parse import urlparse
 import tempfile
+import yt_dlp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -421,9 +422,13 @@ def is_valid_video_url(url):
         if any(url.lower().endswith(ext) for ext in video_extensions):
             return True
         
-        # Check if it's a supported video platform (but note these may not work for direct download)
+        # Check if it's YouTube
+        if 'youtube.com' in parsed.netloc.lower() or 'youtu.be' in parsed.netloc.lower():
+            return True
+        
+        # Check if it's other supported video platforms
         supported_domains = [
-            'youtube.com', 'youtu.be', 'vimeo.com', 'dailymotion.com',
+            'vimeo.com', 'dailymotion.com',
             'facebook.com', 'instagram.com', 'twitter.com', 'tiktok.com'
         ]
         
@@ -432,25 +437,87 @@ def is_valid_video_url(url):
     except:
         return False
 
+def download_youtube_video(url):
+    """Download YouTube video using yt-dlp"""
+    try:
+        logger.info(f"Downloading YouTube video: {url}")
+        
+        # Configure yt-dlp options
+        ydl_opts = {
+            'format': 'best[height<=720]',  # Download best quality up to 720p
+            'outtmpl': '%(title)s.%(ext)s',
+            'quiet': True,
+            'no_warnings': True,
+            'extractaudio': False,
+            'audioformat': None,
+        }
+        
+        # Create temporary directory for download
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ydl_opts['outtmpl'] = os.path.join(temp_dir, '%(title)s.%(ext)s')
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Get video info first
+                info = ydl.extract_info(url, download=False)
+                video_title = info.get('title', 'video')
+                duration = info.get('duration', 0)
+                
+                # Check video duration (limit to 5 minutes for processing)
+                if duration > 300:  # 5 minutes = 300 seconds
+                    raise Exception("Video too long. Please use videos under 5 minutes for analysis.")
+                
+                logger.info(f"YouTube video info: {video_title} (duration: {duration}s)")
+                
+                # Download the video
+                ydl.download([url])
+                
+                # Find the downloaded file
+                downloaded_files = [f for f in os.listdir(temp_dir) if f.endswith(('.mp4', '.webm', '.mkv'))]
+                if not downloaded_files:
+                    raise Exception("Failed to download video file")
+                
+                video_file = downloaded_files[0]
+                video_path = os.path.join(temp_dir, video_file)
+                
+                # Copy to a new temporary file that won't be deleted
+                final_temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                final_temp_path = final_temp_file.name
+                final_temp_file.close()
+                
+                # Copy the file
+                import shutil
+                shutil.copy2(video_path, final_temp_path)
+                
+                file_size = os.path.getsize(final_temp_path)
+                logger.info(f"YouTube video downloaded successfully: {final_temp_path} ({file_size} bytes)")
+                
+                return final_temp_path
+                
+    except Exception as e:
+        logger.error(f"Error downloading YouTube video: {e}")
+        raise Exception(f"Failed to download YouTube video: {str(e)}")
+
 def download_video_from_url(url):
     """Download video from URL and return the file path"""
     try:
         logger.info(f"Downloading video from URL: {url}")
         
-        # Set headers to mimic a browser request
+        # Check if it's a YouTube URL
+        parsed = urlparse(url)
+        if 'youtube.com' in parsed.netloc.lower() or 'youtu.be' in parsed.netloc.lower():
+            return download_youtube_video(url)
+        
+        # For direct video URLs, use the existing method
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        # Download the video
         response = requests.get(url, headers=headers, stream=True, timeout=30)
         response.raise_for_status()
         
-        # Check content type
         content_type = response.headers.get('content-type', '').lower()
         logger.info(f"Content type received: {content_type}")
         
-        # Check if it's actually a video file
         if 'text/html' in content_type:
             logger.warning(f"Received HTML content instead of video for URL: {url}")
             raise Exception("This URL appears to be a webpage, not a direct video file. Please use direct video file URLs (ending in .mp4, .avi, etc.) or upload the video file directly.")
@@ -458,11 +525,9 @@ def download_video_from_url(url):
         if not any(video_type in content_type for video_type in ['video/', 'application/octet-stream', 'binary/octet-stream']):
             logger.warning(f"Content type may not be video: {content_type}")
         
-        # Create temporary file
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
         temp_path = temp_file.name
         
-        # Download in chunks to handle large files
         total_size = 0
         max_size = 100 * 1024 * 1024  # 100MB limit
         
@@ -478,8 +543,7 @@ def download_video_from_url(url):
         temp_file.close()
         logger.info(f"Video downloaded successfully: {temp_path} ({total_size} bytes)")
         
-        # Additional validation: check if file is actually a video
-        if total_size < 10000:  # Less than 10KB is suspicious
+        if total_size < 10000:
             os.unlink(temp_path)
             raise Exception("Downloaded file is too small to be a valid video. Please check the URL.")
         
@@ -510,15 +574,7 @@ def url_detect():
             
             # Validate URL
             if not is_valid_video_url(video_url):
-                return render_template('url_detect.html', error="Please enter a valid video URL. For best results, use direct video file URLs (ending in .mp4, .avi, .mov, etc.)")
-            
-            # Check if it's a platform URL and warn user
-            parsed = urlparse(video_url)
-            domain = parsed.netloc.lower()
-            platform_domains = ['youtube.com', 'youtu.be', 'vimeo.com', 'facebook.com', 'instagram.com', 'twitter.com', 'tiktok.com']
-            
-            if any(platform in domain for platform in platform_domains):
-                return render_template('url_detect.html', error="Platform URLs (YouTube, Facebook, etc.) cannot be downloaded directly due to restrictions. Please use direct video file URLs or upload the video file directly.")
+                return render_template('url_detect.html', error="Please enter a valid video URL. Supported: YouTube URLs and direct video file URLs (ending in .mp4, .avi, .mov, etc.)")
             
             # Download video
             try:
