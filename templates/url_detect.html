@@ -495,20 +495,24 @@
 
         <main class="content" role="main">
             <h1 class="heading">Check Video from URL</h1>
-            <p class="para">Enter a video URL to analyze it for potential DeepFake manipulation.</p>
+            <p class="para">Enter a direct video file URL to analyze it for potential DeepFake manipulation.</p>
 
             <!-- Supported Platforms -->
             <div class="supported-platforms">
-                <h4>Supported Platforms</h4>
+                <h4>Supported Video Formats</h4>
                 <div class="platform-list">
-                    <span class="platform-tag">YouTube</span>
-                    <span class="platform-tag">Vimeo</span>
-                    <span class="platform-tag">Facebook</span>
-                    <span class="platform-tag">Instagram</span>
-                    <span class="platform-tag">Twitter</span>
-                    <span class="platform-tag">TikTok</span>
-                    <span class="platform-tag">Dailymotion</span>
+                    <span class="platform-tag">MP4</span>
+                    <span class="platform-tag">AVI</span>
+                    <span class="platform-tag">MOV</span>
+                    <span class="platform-tag">MKV</span>
+                    <span class="platform-tag">WebM</span>
+                    <span class="platform-tag">FLV</span>
+                    <span class="platform-tag">WMV</span>
                 </div>
+                <p style="color: #8892b0; font-size: 0.9rem; margin-top: 1rem;">
+                    <strong>Note:</strong> Use direct video file URLs (ending in .mp4, .avi, etc.). 
+                    Platform URLs (YouTube, Facebook, etc.) are not supported due to download restrictions.
+                </p>
             </div>
 
             <!-- URL Input Section -->
@@ -517,7 +521,7 @@
                     <div class="url-input-wrapper">
                         <input type="url" 
                                name="video_url" 
-                               placeholder="Enter video URL (e.g., https://youtube.com/watch?v=...)" 
+                               placeholder="Enter video URL (e.g., https://example.com/video.mp4)" 
                                class="url-input" 
                                required 
                                id="url-input">

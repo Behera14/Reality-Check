@@ -439,7 +439,7 @@
                 <div class="feature-card">
                     <div class="feature-icon">🔗</div>
                     <h3>URL Analysis</h3>
-                    <p>Check videos from popular platforms like YouTube, Facebook, Instagram, and more by simply pasting the URL.</p>
+                    <p>Check videos from direct video file URLs. Supports MP4, AVI, MOV, and other common video formats by simply pasting the direct file URL.</p>
                     {% if current_user.is_authenticated %}
                         <a href="{{ url_for('url_detect') }}" class="feature-link">Try URL</a>
                     {% else %}

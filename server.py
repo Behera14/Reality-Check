@@ -416,7 +416,12 @@ def is_valid_video_url(url):
         if not parsed.scheme or not parsed.netloc:
             return False
         
-        # Check if it's a supported video platform
+        # Check if it's a direct video file URL
+        video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv', '.m4v']
+        if any(url.lower().endswith(ext) for ext in video_extensions):
+            return True
+        
+        # Check if it's a supported video platform (but note these may not work for direct download)
         supported_domains = [
             'youtube.com', 'youtu.be', 'vimeo.com', 'dailymotion.com',
             'facebook.com', 'instagram.com', 'twitter.com', 'tiktok.com'
@@ -443,7 +448,14 @@ def download_video_from_url(url):
         
         # Check content type
         content_type = response.headers.get('content-type', '').lower()
-        if not any(video_type in content_type for video_type in ['video/', 'application/octet-stream']):
+        logger.info(f"Content type received: {content_type}")
+        
+        # Check if it's actually a video file
+        if 'text/html' in content_type:
+            logger.warning(f"Received HTML content instead of video for URL: {url}")
+            raise Exception("This URL appears to be a webpage, not a direct video file. Please use direct video file URLs (ending in .mp4, .avi, etc.) or upload the video file directly.")
+        
+        if not any(video_type in content_type for video_type in ['video/', 'application/octet-stream', 'binary/octet-stream']):
             logger.warning(f"Content type may not be video: {content_type}")
         
         # Create temporary file
@@ -465,6 +477,12 @@ def download_video_from_url(url):
         
         temp_file.close()
         logger.info(f"Video downloaded successfully: {temp_path} ({total_size} bytes)")
+        
+        # Additional validation: check if file is actually a video
+        if total_size < 10000:  # Less than 10KB is suspicious
+            os.unlink(temp_path)
+            raise Exception("Downloaded file is too small to be a valid video. Please check the URL.")
+        
         return temp_path
         
     except requests.exceptions.RequestException as e:
@@ -492,7 +510,15 @@ def url_detect():
             
             # Validate URL
             if not is_valid_video_url(video_url):
-                return render_template('url_detect.html', error="Please enter a valid video URL from supported platforms")
+                return render_template('url_detect.html', error="Please enter a valid video URL. For best results, use direct video file URLs (ending in .mp4, .avi, .mov, etc.)")
+            
+            # Check if it's a platform URL and warn user
+            parsed = urlparse(video_url)
+            domain = parsed.netloc.lower()
+            platform_domains = ['youtube.com', 'youtu.be', 'vimeo.com', 'facebook.com', 'instagram.com', 'twitter.com', 'tiktok.com']
+            
+            if any(platform in domain for platform in platform_domains):
+                return render_template('url_detect.html', error="Platform URLs (YouTube, Facebook, etc.) cannot be downloaded directly due to restrictions. Please use direct video file URLs or upload the video file directly.")
             
             # Download video
             try:
