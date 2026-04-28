@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Audio DeepFake Detection</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f5f7fa;
+            color: #1e293b;
+            font-family: 'Inter', sans-serif;
+            text-align: center;
+        }
+
+        .navbar {
+            background: rgba(255, 255, 255, 0.85);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+
+        .navbar-brand {
+            color: #4f46e5;
+            font-size: 1.8rem;
+            font-weight: bold;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .navbar-brand:hover {
+            color: #3730a3;
+        }
+
+        .navbar-nav {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: #1e293b;
+            text-decoration: none;
+            padding: 0.6rem 1.2rem;
+            font-size: 1rem;
+            border-radius: 5px;
+            transition: all 0.3s ease-in-out;
+        }
+
+        .nav-link:hover {
+            background: rgba(79, 70, 229, 0.15);
+            color: #4f46e5;
+        }
+
+        .nav-link.active {
+            background: rgba(79, 70, 229, 0.15);
+            color: #4f46e5;
+        }
+
+        .nav-link.highlight {
+            background: #4f46e5;
+            color: #f5f7fa;
+            font-weight: 600;
+            padding: 0.7rem 1.5rem;
+            border-radius: 8px;
+        }
+
+        .nav-link.highlight:hover {
+            background: #3730a3;
+        }
+
+        .container {
+            margin-top: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 0 2rem;
+        }
+
+        h1 {
+            font-size: 2.8rem;
+            margin-bottom: 10px;
+            color: #4f46e5;
+        }
+
+        .form-container {
+            background: rgba(255, 255, 255, 0.6);
+            padding: 30px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .upload-box {
+            border: 2px dashed #4f46e5;
+            padding: 30px;
+            width: 100%;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .upload-box:hover {
+            background: rgba(79, 70, 229, 0.1);
+            border-color: #3730a3;
+        }
+
+        .upload-box input {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+
+        .btn {
+            background-color: #4f46e5;
+            color: #ffffff;
+            padding: 14px 28px;
+            font-size: 18px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.3s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            background-color: #3730a3;
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            background-color: #4a4a6a;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(79, 70, 229, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(79, 70, 229, 0.2);
+        }
+
+        .result.fake {
+            background: rgba(255, 77, 77, 0.1);
+            border-color: rgba(255, 77, 77, 0.3);
+        }
+
+        .result.real {
+            background: rgba(77, 255, 77, 0.1);
+            border-color: rgba(77, 255, 77, 0.3);
+        }
+
+        .result p {
+            margin: 0.5rem 0;
+            font-size: 1.2rem;
+        }
+
+        .error {
+            color: #ff4d4d;
+            background: rgba(255, 77, 77, 0.1);
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .audio-preview {
+            width: 100%;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+
+        .file-name {
+            color: #4f46e5;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        .loading {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(79, 70, 229, 0.1);
+            border-top: 3px solid #4f46e5;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .footer {
+            margin-top: 50px;
+            padding: 20px;
+            background-color: rgba(255, 255, 255, 0.85);
+            color: #1e293b;
+            font-size: 14px;
+        }
+
+        .info-section {
+            background: rgba(255, 255, 255, 0.6);
+            padding: 30px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 800px;
+            margin: 30px auto;
+            text-align: left;
+        }
+
+        .info-section h3 {
+            color: #4f46e5;
+            margin-bottom: 15px;
+        }
+
+        .info-section p {
+            color: #475569;
+            line-height: 1.6;
+        }
+
+        .info-section ul {
+            color: #475569;
+            padding-left: 20px;
+        }
+
+        .info-section li {
+            margin: 8px 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="navbar">
+        <a href="{{ url_for('homepage') }}" class="navbar-brand">DeepFake Detection</a>
+        <div class="navbar-nav">
+            {% if current_user.is_authenticated %}
+            <a href="{{ url_for('detect') }}" class="nav-link">Detect Video</a>
+            <a href="{{ url_for('image_detect') }}" class="nav-link">Detect Image</a>
+            <a href="{{ url_for('audio_detect') }}" class="nav-link active">Audio Detection</a>
+            <a href="{{ url_for('logout') }}" class="nav-link">Logout</a>
+            {% else %}
+            <a href="{{ url_for('login') }}" class="nav-link">Login</a>
+            <a href="{{ url_for('signup') }}" class="nav-link highlight">Sign Up</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="container">
+        <h1>🎵 Audio DeepFake Detection</h1>
+        <p>Upload an audio file to detect AI-generated or manipulated voice content.</p>
+    </div>
+
+    <div class="container">
+        <div class="form-container">
+            <form action="{{ url_for('audio_detect') }}" method="post" enctype="multipart/form-data" id="audio-form">
+                <label class="upload-box" for="audioUpload">
+                    <div class="upload-icon">🎤</div>
+                    <p>Click to upload or drag & drop</p>
+                    <p style="font-size: 0.8rem; color: #475569;">Supported: WAV, MP3, FLAC, OGG (Max: 50MB)</p>
+                    <input type="file" id="audioUpload" name="audio" accept="audio/*" required
+                        onchange="previewAudio(event)">
+                </label>
+                <p class="file-name" id="fileName"></p>
+                <audio id="audioPreview" class="audio-preview" controls style="display: none;"></audio>
+
+                <div class="loading" id="loading">
+                    <div class="loading-spinner"></div>
+                    <p>Analyzing audio...</p>
+                </div>
+
+                <button class="btn" type="submit" id="detectBtn">🔍 Detect DeepFake</button>
+            </form>
+
+            {% if output %}
+            <div class="result {{ 'fake' if output == 'FAKE' else 'real' }}">
+                <p>Prediction: <strong style="color: {{'#ff4d4d' if output == 'FAKE' else '#4dff4d' }};">{{ output
+                        }}</strong></p>
+                <p>Confidence: <strong>{{ confidence }}%</strong></p>
+            </div>
+            {% endif %}
+            {% if error %}
+            <p class="error">{{ error }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="info-section">
+            <h3>ℹ️ About Audio DeepFake Detection</h3>
+            <p>Our AI model analyzes audio files to detect synthetic or manipulated voice content. The system uses
+                advanced deep learning techniques to identify:</p>
+            <ul>
+                <li>AI-generated voice clones</li>
+                <li>Voice manipulation and editing</li>
+                <li>Text-to-speech generated audio</li>
+                <li>Voice conversion attacks</li>
+            </ul>
+            <p style="margin-top: 15px;"><strong>How it works:</strong> The model extracts acoustic features from the
+                audio and analyzes patterns that are typical in synthetic speech generation.</p>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>&copy; 2025 DeepFake Detection</p>
+    </div>
+
+    <script>
+        function previewAudio(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const audio = document.getElementById('audioPreview');
+                const fileName = document.getElementById('fileName');
+
+                audio.src = URL.createObjectURL(file);
+                audio.style.display = 'block';
+                fileName.textContent = file.name;
+            }
+        }
+
+        document.getElementById('audio-form').addEventListener('submit', function () {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('detectBtn').disabled = true;
+        });
+    </script>
+
+</body>
+
+</html>

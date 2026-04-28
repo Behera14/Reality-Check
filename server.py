@@ -1,24 +1,25 @@
+import os
+
+# --- Environment Configuration (MUST BE FIRST) ---
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
+os.environ['MEDIAPIPE_DISABLE_GPU']='1'
+os.environ['GLOG_minloglevel'] ='3'  # 3 = FATAL only
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['OMP_NUM_THREADS'] = '1'
+
 from flask import Flask, render_template, redirect, request, url_for, send_file, send_from_directory, flash
 from flask import jsonify, json
 from werkzeug.utils import secure_filename
 import datetime
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from models import db, User
-import os
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
-os.environ['MEDIAPIPE_DISABLE_GPU']='1'  # Force MediaPipe to use CPU only
 
-# Memory optimization settings
-os.environ['OMP_NUM_THREADS'] = '1'
-os.environ['MKL_NUM_THREADS'] = '1'
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-os.environ['NUMEXPR_NUM_THREADS'] = '1'
-os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
-
-# Additional MediaPipe and GPU suppression
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
-os.environ['CUDA_VISIBLE_DEVICES'] = ''  # Disable CUDA
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations
+# Suppress MediaPipe GPU warnings
+import logging
+logging.getLogger('mediapipe').setLevel(logging.ERROR)
+logging.getLogger('absl').setLevel(logging.ERROR)
 
 # Suppress MediaPipe GPU warnings
 import logging
@@ -32,7 +33,8 @@ from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 import numpy as np
 import cv2
-import mediapipe as mp
+# Removed MediaPipe due to protobuf conflict
+# import mediapipe as mp
 from torch.autograd import Variable
 import time
 import uuid
@@ -42,41 +44,33 @@ from PIL import Image
 import requests
 from urllib.parse import urlparse
 import tempfile
-import yt_dlp
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize MediaPipe Face Mesh for CPU
-mp_face_mesh = mp.solutions.face_mesh
-mp_drawing = mp.solutions.drawing_utils
-
-# Initialize MediaPipe with CPU-only configuration
+# Initialize OpenCV Haar Cascade for Face Detection
+# Initialize MTCNN for Face Detection
 try:
-    face_mesh = mp_face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=1,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-        refine_landmarks=False  # Disable GPU-dependent feature
-    )
-    logger.info("MediaPipe Face Mesh initialized successfully")
-except Exception as e:
-    logger.warning(f"MediaPipe initialization warning (non-critical): {e}")
-    # Fallback configuration
-    face_mesh = mp_face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=1,
-        min_detection_confidence=0.3,
-        min_tracking_confidence=0.3,
-        refine_landmarks=False
-    )
+    from mtcnn import MTCNN
+    detector = MTCNN()
+    logger.info("MTCNN face detector loaded successfully.")
+except ImportError:
+    logger.error("MTCNN not found! Falling back to Haar Cascade (legacy).")
+    # Fallback legacy initialization
+    FACE_CASCADE_PATH = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+    face_cascade = cv2.CascadeClassifier(FACE_CASCADE_PATH)
+    detector = None
 import logging
 import zipfile
 from torch import nn
 import torch.nn.functional as F
 from torchvision import models
+from torchvision.models import efficientnet_b0
 from skimage import img_as_ubyte
 import warnings
 warnings.filterwarnings("ignore")
@@ -87,23 +81,320 @@ warnings.filterwarnings("ignore")
 # from matplotlib.colors import LinearSegmentedColormap
 from huggingface_hub import hf_hub_download
 
+# Model paths
+# Video detection: df_model.pt (ResNeXt50 + LSTM for temporal analysis)
+# Image detection: best_model-v3.pt (EfficientNet-B0 for single images)
+# Audio detection: audio_classifier.h5 (TensorFlow/Keras model)
+
+# EfficientNet model path (for IMAGE detection)
+EFFICIENTNET_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'best_model-v3.pt')
+
+# Audio classifier model path (for AUDIO detection)
+AUDIO_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'audio_classifier.h5')
+
+# DFModel path (for VIDEO detection) - loaded in get_model() function
+DF_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'df_model.pt')
+
+# New Xception Model path (Keras .h5)
+VIDEO_MODEL_H5_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'df_92_v2.h5')
+
+# Lazy loading for audio model
+_audio_model = None
+
+def get_audio_model():
+    """Load audio classifier model (TensorFlow/Keras)"""
+    global _audio_model
+    if _audio_model is None:
+        try:
+            import tensorflow as tf
+            tf.get_logger().setLevel('ERROR')
+            logger.info(f"Loading audio classifier model from: {AUDIO_MODEL_PATH}")
+            if not os.path.exists(AUDIO_MODEL_PATH):
+                raise FileNotFoundError(f"Audio model not found at: {AUDIO_MODEL_PATH}")
+            _audio_model = tf.keras.models.load_model(AUDIO_MODEL_PATH)
+            logger.info("Audio classifier model loaded successfully!")
+        except Exception as e:
+            logger.error(f"Error loading audio model: {str(e)}")
+            raise
+    return _audio_model
+
+# Lazy loading for video h5 model
+_video_model_h5 = None
+
+def get_video_model_h5():
+    """Load video classifier model (Keras .h5)"""
+    global _video_model_h5
+    if _video_model_h5 is None:
+        try:
+            import tensorflow as tf
+            # Suppress TF logging
+            tf.get_logger().setLevel('ERROR')
+            
+            logger.info(f"Loading video model from: {VIDEO_MODEL_H5_PATH}")
+            if not os.path.exists(VIDEO_MODEL_H5_PATH):
+                raise FileNotFoundError(f"Video model not found at: {VIDEO_MODEL_H5_PATH}")
+                
+            _video_model_h5 = tf.keras.models.load_model(VIDEO_MODEL_H5_PATH)
+            logger.info("Video Keras model loaded successfully!")
+        except Exception as e:
+            logger.error(f"Error loading video Keras model: {str(e)}")
+            raise
+    return _video_model_h5
+
+def crop_face_from_frame(frame_image):
+    """
+    Detect and crop face from a PIL Image using OpenCV Haar Cascades.
+    Returns the cropped PIL Image (resized to 224x224) or None if no face found.
+    """
+    try:
+        # Convert PIL to cv2 input (BGR)
+        open_cv_image = np.array(frame_image) 
+        # Convert RGB to BGR
+        open_cv_image = open_cv_image[:, :, ::-1].copy()
+        
+        if detector:
+            # MTCNN Detection
+            # detect_faces expects RGB image
+            faces = detector.detect_faces(np.array(frame_image))
+            
+            if not faces:
+                return None
+                
+            # Get largest face (highest confidence * box area)
+            # MTCNN returns dict with 'box': [x, y, width, height]
+            largest_face = max(faces, key=lambda f: f['box'][2] * f['box'][3])
+            x, y, w, h = largest_face['box']
+            
+            # Fix negative coordinates
+            x, y = max(0, x), max(0, y)
+        else:
+            # Legacy Haar Cascade Detection
+            gray = cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.1,
+                minNeighbors=5,
+                minSize=(30, 30)
+            )
+            
+            if len(faces) == 0:
+                return None
+            
+            # Get largest face
+            x, y, w, h = max(faces, key=lambda b: b[2] * b[3])
+        
+        # Add padding (20%)
+        p_x = int(w * 0.2)
+        p_y = int(h * 0.2)
+        
+        frame_h, frame_w, _ = open_cv_image.shape
+        
+        left = max(0, x - p_x)
+        top = max(0, y - p_y)
+        right = min(frame_w, x + w + p_x)
+        bottom = min(frame_h, y + h + p_y)
+        
+        # Crop from original frame (RGB)
+        cropped = np.array(frame_image)[top:bottom, left:right]
+        
+        if cropped.size == 0:
+            return None
+            
+        # Resize to 224x224 for Xception
+        cropped = cv2.resize(cropped, (224, 224))
+        
+        # Return as PIL Image
+        return Image.fromarray(cropped)
+        
+    except Exception as e:
+        logger.warning(f"Face crop failed for frame: {e}")
+        return None
+
+def predict_video_xception(video_path):
+    """
+    Predict video using the Keras .h5 model.
+    Steps:
+    1. Extract frames
+    2. Crop faces
+    3. Preprocess (normalize /255.0)
+    4. Predict
+    5. Average results
+    """
+    start_time = time.time()
+    logger.info(f"Starting Xception video analysis for: {video_path}")
+    
+    try:
+        model = get_video_model_h5()
+        
+        # Extract frames (using existing function)
+        # Extract slightly more frames to ensure we catch faces
+        frames, frame_paths = extract_video_frames(video_path, num_frames=50, save_frames=True)
+        
+        if not frames:
+            raise Exception("No frames extracted from video")
+            
+        preprocessed_faces = []
+        valid_frame_indices = []
+        
+        for i, frame in enumerate(frames):
+            # Crop face
+            face_crop = crop_face_from_frame(frame)
+            if face_crop:
+                # Debug: Save cropped face
+                debug_path = f"static/debug_crops/crop_{i}.jpg"
+                face_crop.save(debug_path)
+                
+                # Convert to numpy
+                img_array = np.array(face_crop)
+                
+                # Standard Xception preprocessing (Map to -1 to 1)
+                # Formula: (x / 127.5) - 1.0  OR  tf.keras.applications.xception.preprocess_input
+                # Old code used / 255.0 (Map to 0 to 1). Let's stick to user's .h5 expectation (likely 0-1 if custom, but -1-1 if stock xception)
+                # Trying standard Xception preprocessing first as false positives often mean "pattern not found"
+                img_array = (img_array / 127.5) - 1.0
+                
+                preprocessed_faces.append(img_array)
+                valid_frame_indices.append(i)
+                
+        if not preprocessed_faces:
+            logger.warning("No faces detected in any frames. Fallback: using center crops.")
+            # Fallback logic: center crop resize
+            for i, frame in enumerate(frames):
+                img = frame.resize((224, 224))
+                img_array = np.array(img)
+                img_array = (img_array / 127.5) - 1.0
+                preprocessed_faces.append(img_array)
+                valid_frame_indices.append(i)
+        
+        # Batch prediction
+        batch_input = np.array(preprocessed_faces) # (N, 224, 224, 3)
+        logger.info(f"Running inference on {len(batch_input)} frames")
+        
+        predictions = model.predict(batch_input, verbose=0)
+        
+        # Calculate average probability
+        # Assuming output is probability of FAKE (based on user snippet: >0.5 is Fake)
+        if predictions.shape[-1] == 1:
+            fake_probs = predictions.flatten()
+        else:
+            # If 2 classes, usually [Real, Fake] or [Fake, Real]. 
+            # Snippet said "pred[0][0]". This implies shape (1, 1). So standard binary.
+            fake_probs = predictions[:, 0]
+            
+        avg_fake_prob = np.mean(fake_probs)
+        
+        # Determine label
+        # 0 = FAKE, 1 = REAL (Project standard)
+        # Model Output: 
+        #   Close to 0.0 -> FAKE (Low "Realness")
+        #   Close to 1.0 -> REAL (High "Realness")
+        
+        is_fake = avg_fake_prob < 0.5  # <--- INVERTED LOGIC based on testing
+        
+        prediction_label = 0 if is_fake else 1
+        # Confidence is distance from 0.5 (or deviation from opposite)
+        # If is_fake (prob < 0.5): confidence is (1 - prob) * 100 
+        # If is_real (prob > 0.5): confidence is prob * 100
+        confidence = (1 - avg_fake_prob) * 100 if is_fake else avg_fake_prob * 100
+        
+        # Heatmap generation
+        heatmap_filename = f"heatmap_{uuid.uuid4().hex}.png"
+        heatmap_url = generate_efficientnet_heatmap(fake_probs, heatmap_filename) # Reuse this helper
+        
+        processing_time = time.time() - start_time
+        
+        return [prediction_label, confidence, heatmap_url, frame_paths], processing_time
+        
+    except Exception as e:
+        logger.error(f"Error in Xception prediction: {e}")
+        traceback.print_exc()
+        raise
+
+def audio_to_mel_spectrogram(audio_path, sr=16000, n_mels=128, duration=4):
+    """Convert audio file to mel spectrogram for model input"""
+    try:
+        import librosa
+        # Load audio file
+        y, sr_orig = librosa.load(audio_path, sr=sr, duration=duration)
+        
+        # Pad or truncate to fixed length
+        target_length = sr * duration
+        if len(y) < target_length:
+            y = np.pad(y, (0, target_length - len(y)), mode='constant')
+        else:
+            y = y[:target_length]
+        
+        # Generate mel spectrogram
+        mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels)
+        mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+        
+        # Ensure exactly 109 time steps to match model input shape (128, 109, 1)
+        if mel_spec_db.shape[1] > 109:
+            mel_spec_db = mel_spec_db[:, :109]
+        elif mel_spec_db.shape[1] < 109:
+            mel_spec_db = np.pad(mel_spec_db, ((0, 0), (0, 109 - mel_spec_db.shape[1])), mode='constant')
+        
+        # Normalize to [0, 1]
+        mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-8)
+        
+        return mel_spec_norm
+    except Exception as e:
+        logger.error(f"Error converting audio to mel spectrogram: {str(e)}")
+        raise
+
+def predict_audio(audio_path):
+    """Predict if audio is fake using the audio classifier model"""
+    try:
+        model = get_audio_model()
+        
+        # Convert audio to mel spectrogram
+        mel_spec = audio_to_mel_spectrogram(audio_path)
+        
+        # Reshape for model input: (batch, height, width, channels)
+        input_shape = model.input_shape
+        if len(input_shape) == 4:  # (batch, height, width, channels)
+            mel_spec = mel_spec.reshape(1, mel_spec.shape[0], mel_spec.shape[1], 1)
+        else:
+            mel_spec = mel_spec.reshape(1, mel_spec.shape[0], mel_spec.shape[1])
+        
+        # Make prediction
+        prediction = model.predict(mel_spec, verbose=0)[0]
+        
+        # Model outputs: 0 = bonafide (real), 1 = spoof (fake)
+        # Or single probability depending on output layer
+        if len(prediction) == 1:
+            # Single output: probability of spoof (fake)
+            fake_prob = prediction[0]
+            is_fake = fake_prob > 0.5
+            confidence = fake_prob * 100 if is_fake else (1 - fake_prob) * 100
+        else:
+            # Two outputs: [bonafide_prob, spoof_prob]
+            predicted_class = np.argmax(prediction)
+            is_fake = predicted_class == 1
+            confidence = prediction[predicted_class] * 100
+        
+        return is_fake, confidence
+    except Exception as e:
+        logger.error(f"Error predicting audio: {str(e)}")
+        traceback.print_exc()
+        return None, None
+
 # Get the absolute path for the upload folder
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Uploaded_Files')
 # Remove unused folder paths
 # FRAMES_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'frames')
 # GRAPHS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'graphs')
-DATASET_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Admin', 'datasets')
 
 # Create the folders if they don't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-# os.makedirs(FRAMES_FOLDER, exist_ok=True)
-# os.makedirs(GRAPHS_FOLDER, exist_ok=True)
-os.makedirs(DATASET_FOLDER, exist_ok=True)
+HEATMAP_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'heatmaps')
+os.makedirs(HEATMAP_FOLDER, exist_ok=True)
+FRAMES_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'frames')
+os.makedirs(FRAMES_FOLDER, exist_ok=True)
 
 # Ensure folders have proper permissions
-# os.chmod(FRAMES_FOLDER, 0o755)
-# os.chmod(GRAPHS_FOLDER, 0o755)
-os.chmod(DATASET_FOLDER, 0o755)
+os.chmod(HEATMAP_FOLDER, 0o755)
+os.chmod(FRAMES_FOLDER, 0o755)
 
 video_path = ""
 detectOutput = []
@@ -209,17 +500,75 @@ class Model(nn.Module):
         x_lstm,_ = self.lstm(x, None)
         return fmap, self.dp(self.linear1(x_lstm[:,-1,:]))
 
+def generate_temporal_heatmap(sequence_logits, filename):
+    """
+    Generate a temporal heatmap showing confidence over frames.
+    sequence_logits: numpy array of shape [seq_length, 2]
+    """
+    try:
+        # Calculate probabilities for 'Fake' class (index 1) which is usually 1, but let's check mapping
+        # In this model, often 0 is FAKE and 1 is REAL, or vice versa. 
+        # Standard: 0=Real, 1=Fake. Let's verify prediction logic below.
+        # "if prediction[0] == 0: output = 'FAKE'". So 0 is Fake.
+        # We want to plot the probability of FAKE (class 0).
+        
+        # Apply softmax to get probabilities
+        probs = np.exp(sequence_logits) / np.sum(np.exp(sequence_logits), axis=1, keepdims=True)
+        fake_probs = probs[:, 0] # Probability of being Fake (Class 0)
+        
+        # Reshape for heatmap (grid for better visualization)
+        # 20 frames -> 4 rows x 5 columns
+        if len(fake_probs) == 20:
+             data = fake_probs.reshape(4, 5)
+             yticklabels = ['Seq 1', 'Seq 2', 'Seq 3', 'Seq 4']
+             xticklabels = ['1', '2', '3', '4', '5']
+             plt.figure(figsize=(8, 6))
+        else:
+             # Fallback for other lengths
+             data = fake_probs.reshape(1, -1)
+             yticklabels = ['Fake Risk']
+             xticklabels = True
+             plt.figure(figsize=(10, 2))
+        
+        # Use annot=True for values, linewidths for grid effect
+        sns.heatmap(data, cmap='coolwarm', cbar=True, 
+                   yticklabels=yticklabels, xticklabels=xticklabels, 
+                   vmin=0, vmax=1,
+                   annot=True, fmt='.2f', annot_kws={"size": 10},
+                   linewidths=1, linecolor='white', square=True)
+                   
+        plt.title("Fake Probability - Video Frame Segments")
+        plt.xlabel("Frame Index (Relative)")
+        plt.ylabel("Segment")
+        plt.yticks(rotation=0) 
+        
+        save_path = os.path.join(HEATMAP_FOLDER, filename)
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close()
+        
+        return f"static/heatmaps/{filename}"
+    except Exception as e:
+        logger.error(f"Error generating temporal heatmap: {e}")
+        return None
+
 def predict(model, img, path='./'):
     try:
         with torch.no_grad():
-            fmap, logits = model(img)
-            params = list(model.parameters())
-            weight_softmax = model.linear1.weight.detach().cpu().numpy()
+            fmap, logits, sequence_logits = model(img)
             logits = F.softmax(logits, dim=1)
             _, prediction = torch.max(logits, 1)
             confidence = logits[:, int(prediction.item())].item() * 100
+            
+            # Generate unique filename for heatmap
+            heatmap_filename = f"heatmap_{uuid.uuid4().hex}.png"
+            
+            # Convert sequence logits to numpy
+            seq_logits_np = sequence_logits.cpu().numpy()[0] # [seq_len, 2]
+            
+            heatmap_url = generate_temporal_heatmap(seq_logits_np, heatmap_filename)
+            
             logger.info(f'Prediction confidence: {confidence}%')
-            return [int(prediction.item()), confidence]
+            return [int(prediction.item()), confidence, heatmap_url]
     except Exception as e:
         logger.error(f"Error during prediction: {str(e)}")
         traceback.print_exc()
@@ -275,7 +624,11 @@ class validation_dataset(Dataset):
                     frame = frame[top:bottom, left:right, :]
             except:
                 pass
-            frames.append(self.transform(frame))
+            
+            # Convert numpy array (BGR) to PIL Image (RGB)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_frame = Image.fromarray(frame_rgb)
+            frames.append(self.transform(pil_frame))
             if(len(frames) == self.count):
                 break
         frames = torch.stack(frames)
@@ -290,56 +643,256 @@ class validation_dataset(Dataset):
             if success:
                 yield image
 
+# ============================================================
+# EfficientNet-B0 Model Integration (from DeepfakeDetector-main)
+# ============================================================
+
+# Lazy loading for EfficientNet model
+_efficientnet_model = None
+_efficientnet_transform = None
+
+def get_efficientnet_model():
+    """Load EfficientNet-B0 model from DeepfakeDetector-main"""
+    global _efficientnet_model, _efficientnet_transform
+    
+    if _efficientnet_model is None:
+        try:
+            logger.info(f"Loading EfficientNet-B0 model from: {EFFICIENTNET_MODEL_PATH}")
+            
+            if not os.path.exists(EFFICIENTNET_MODEL_PATH):
+                raise FileNotFoundError(f"EfficientNet model not found at: {EFFICIENTNET_MODEL_PATH}")
+            
+            # Initialize EfficientNet-B0 architecture
+            _efficientnet_model = efficientnet_b0()
+            _efficientnet_model.classifier[1] = torch.nn.Linear(
+                _efficientnet_model.classifier[1].in_features, 2
+            )
+            
+            # Load trained weights
+            _efficientnet_model.load_state_dict(
+                torch.load(EFFICIENTNET_MODEL_PATH, map_location=torch.device('cpu'))
+            )
+            _efficientnet_model.eval()
+            
+            # Transform for EfficientNet (224x224, ImageNet normalization)
+            _efficientnet_transform = transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225]
+                )
+            ])
+            
+            logger.info("EfficientNet-B0 model loaded successfully!")
+        except Exception as e:
+            logger.error(f"Error loading EfficientNet model: {str(e)}")
+            raise
+    
+    return _efficientnet_model, _efficientnet_transform
+
+def extract_video_frames(video_path, num_frames=15, save_frames=True):
+    """
+    Extract evenly-spaced frames from video for analysis.
+    Returns: (frames, frame_paths) - PIL images and saved file paths
+    """
+    frames = []
+    frame_paths = []
+    cap = cv2.VideoCapture(video_path)
+    
+    if not cap.isOpened():
+        raise Exception(f"Cannot open video file: {video_path}")
+    
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    if total_frames < 1:
+        raise Exception("Video has no frames")
+    
+    # Get evenly-spaced frame indices
+    if num_frames is None or num_frames <= 0 or num_frames >= total_frames:
+        indices = list(range(total_frames))
+    else:
+        indices = np.linspace(0, total_frames - 1, num=num_frames, dtype=int)
+    
+    # Generate unique session ID for this analysis
+    session_id = uuid.uuid4().hex[:8]
+    
+    current_frame = 0
+    frame_count = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        if current_frame in indices:
+            # Convert BGR to RGB
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_frame = Image.fromarray(frame_rgb)
+            frames.append(pil_frame)
+            
+            # Save frame to disk if requested
+            if save_frames:
+                frame_filename = f"frame_{session_id}_{frame_count:02d}.jpg"
+                frame_path = os.path.join(FRAMES_FOLDER, frame_filename)
+                pil_frame.save(frame_path, "JPEG", quality=85)
+                frame_paths.append(f"static/frames/{frame_filename}")
+                frame_count += 1
+        
+        current_frame += 1
+        
+        if len(frames) >= len(indices):
+            break
+    
+    cap.release()
+    
+    if len(frames) == 0:
+        raise Exception("No frames could be extracted from video")
+    
+    logger.info(f"Extracted {len(frames)} frames from video (total: {total_frames})")
+    return frames, frame_paths
+
+def predict_video_efficientnet(video_path, num_frames=15):
+    """
+    Predict if video is fake using EfficientNet-B0 with multi-frame averaging.
+    Returns: (prediction, confidence, per_frame_probs, frame_paths)
+    - prediction: 0 = FAKE, 1 = REAL
+    - confidence: percentage confidence
+    - per_frame_probs: list of fake probabilities for each frame (for heatmap)
+    - frame_paths: list of saved frame image paths
+    """
+    model, transform = get_efficientnet_model()
+    frames, frame_paths = extract_video_frames(video_path, num_frames, save_frames=True)
+    
+    all_probs = []
+    per_frame_fake_probs = []
+    
+    with torch.no_grad():
+        for frame in frames:
+            input_tensor = transform(frame).unsqueeze(0)
+            output = model(input_tensor)
+            probs = torch.softmax(output, dim=1)[0]
+            all_probs.append(probs)
+            # probs[1] is fake probability in EfficientNet model (class 1 = FAKE)
+            per_frame_fake_probs.append(probs[1].item())
+    
+    # Average probabilities across all frames
+    avg_probs = torch.mean(torch.stack(all_probs), dim=0)
+    predicted_class = torch.argmax(avg_probs).item()
+    confidence = avg_probs[predicted_class].item() * 100
+    
+    # Map EfficientNet output to our format:
+    # EfficientNet: 0 = Real, 1 = Fake
+    # Our format: 0 = FAKE, 1 = REAL (inverted)
+    if predicted_class == 1:  # EfficientNet says Fake
+        our_prediction = 0  # Our FAKE
+    else:  # EfficientNet says Real
+        our_prediction = 1  # Our REAL
+    
+    return our_prediction, confidence, per_frame_fake_probs, frame_paths
+
+def generate_efficientnet_heatmap(per_frame_probs, filename):
+    """
+    Generate temporal heatmap from per-frame fake probabilities.
+    """
+    try:
+        probs = np.array(per_frame_probs)
+        num_frames = len(probs)
+        
+        # Create grid layout: aim for roughly 4x5 or similar
+        if num_frames <= 5:
+            rows, cols = 1, num_frames
+        elif num_frames <= 10:
+            rows, cols = 2, (num_frames + 1) // 2
+        elif num_frames <= 15:
+            rows, cols = 3, 5
+        else:
+            rows, cols = 4, 5
+        
+        # Pad if needed
+        total_cells = rows * cols
+        if len(probs) < total_cells:
+            probs = np.pad(probs, (0, total_cells - len(probs)), mode='edge')
+        
+        data = probs[:total_cells].reshape(rows, cols)
+        
+        plt.figure(figsize=(8, 6))
+        yticklabels = [f'Seq {i+1}' for i in range(rows)]
+        xticklabels = [str(i+1) for i in range(cols)]
+        
+        sns.heatmap(
+            data, cmap='coolwarm', cbar=True,
+            yticklabels=yticklabels, xticklabels=xticklabels,
+            vmin=0, vmax=1,
+            annot=True, fmt='.2f', annot_kws={"size": 10},
+            linewidths=1, linecolor='white', square=True
+        )
+        
+        plt.title("Fake Probability - Video Frame Segments")
+        plt.xlabel("Frame Index (Relative)")
+        plt.ylabel("Segment")
+        plt.yticks(rotation=0)
+        
+        save_path = os.path.join(HEATMAP_FOLDER, filename)
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close()
+        
+        return f"static/heatmaps/{filename}"
+    except Exception as e:
+        logger.error(f"Error generating EfficientNet heatmap: {e}")
+        return None
+
 def detectFakeVideo(videoPath):
+    """Detect if video is fake using DFModel (ResNeXt50 + LSTM)"""
     start_time = time.time()
     
     try:
         logger.info(f"Starting video analysis for: {videoPath}")
         
-        im_size = 112
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
-
-        train_transforms = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize((im_size,im_size)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean,std)
-        ])
+        # Load DFModel and transform
+        model, transform = get_model()
         
-        logger.info("Creating video dataset...")
-        path_to_videos = [videoPath]
-        video_dataset = validation_dataset(path_to_videos, sequence_length=20, transform=train_transforms)
+        # Create video dataset for sequence processing
+        video_dataset = validation_dataset([videoPath], sequence_length=20, transform=transform)
         
-        logger.info("Getting model...")
-        # Use the lazy-loaded model instead of creating a new one
-        model, _ = get_model()
+        # Get the video sequence
+        frames_tensor = video_dataset[0]  # Returns [1, seq_length, C, H, W]
         
-        logger.info("Running prediction...")
-        prediction = predict(model, video_dataset[0], './')
+        logger.info(f"Loaded video sequence with shape: {frames_tensor.shape}")
+        
+        # Make prediction using DFModel
+        with torch.no_grad():
+            fmap, logits, sequence_logits = model(frames_tensor)
+            probs = F.softmax(logits, dim=1)
+            _, prediction = torch.max(probs, 1)
+            confidence = probs[:, int(prediction.item())].item() * 100
+            
+            # Generate unique filename for heatmap
+            heatmap_filename = f"heatmap_{uuid.uuid4().hex}.png"
+            
+            # Convert sequence logits to numpy for heatmap
+            seq_logits_np = sequence_logits.cpu().numpy()[0]  # [seq_len, 2]
+            
+            # Generate temporal heatmap
+            heatmap_url = generate_temporal_heatmap(seq_logits_np, heatmap_filename)
+            
+            logger.info(f'Prediction: {prediction.item()}, Confidence: {confidence}%')
+        
+        # Extract and save sample frames for display
+        frames, frame_paths = extract_video_frames(videoPath, num_frames=15, save_frames=True)
         
         processing_time = time.time() - start_time
         logger.info(f"Video processing completed in {processing_time:.2f} seconds")
-        logger.info(f"Prediction result: {prediction}")
+        logger.info(f"Prediction: {'FAKE' if prediction.item() == 0 else 'REAL'} with {confidence:.1f}% confidence")
+        logger.info(f"Saved {len(frame_paths)} analyzed frames")
         
-        return prediction, processing_time
+        # Return prediction with frame_paths included
+        # prediction: 0 = FAKE, 1 = REAL (DFModel format)
+        return [prediction.item(), confidence, heatmap_url, frame_paths], processing_time
+        
     except Exception as e:
         logger.error(f"Error in detectFakeVideo: {str(e)}")
         traceback.print_exc()
         raise
-
-def get_datasets():
-    datasets = []
-    for item in os.listdir(DATASET_FOLDER):
-        if item.endswith('.zip'):
-            path = os.path.join(DATASET_FOLDER, item)
-            stats = os.stat(path)
-            datasets.append({
-                'name': item,
-                'size': stats.st_size,
-                'upload_date': datetime.datetime.fromtimestamp(stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-            })
-    return datasets
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
@@ -409,224 +962,6 @@ def test_endpoint():
         'timestamp': datetime.datetime.now().isoformat()
     })
 
-# Add URL validation function
-def is_valid_video_url(url):
-    """Check if the URL is a valid video URL"""
-    try:
-        parsed = urlparse(url)
-        if not parsed.scheme or not parsed.netloc:
-            return False
-        
-        # Check if it's a direct video file URL
-        video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv', '.m4v']
-        if any(url.lower().endswith(ext) for ext in video_extensions):
-            return True
-        
-        # Check if it's YouTube
-        if 'youtube.com' in parsed.netloc.lower() or 'youtu.be' in parsed.netloc.lower():
-            return True
-        
-        # Check if it's other supported video platforms
-        supported_domains = [
-            'vimeo.com', 'dailymotion.com',
-            'facebook.com', 'instagram.com', 'twitter.com', 'tiktok.com'
-        ]
-        
-        domain = parsed.netloc.lower()
-        return any(supported in domain for supported in supported_domains)
-    except:
-        return False
-
-def download_youtube_video(url):
-    """Download YouTube video using yt-dlp"""
-    try:
-        logger.info(f"Downloading YouTube video: {url}")
-        
-        # Configure yt-dlp options
-        ydl_opts = {
-            'format': 'best[height<=720]',  # Download best quality up to 720p
-            'outtmpl': '%(title)s.%(ext)s',
-            'quiet': True,
-            'no_warnings': True,
-            'extractaudio': False,
-            'audioformat': None,
-        }
-        
-        # Create temporary directory for download
-        with tempfile.TemporaryDirectory() as temp_dir:
-            ydl_opts['outtmpl'] = os.path.join(temp_dir, '%(title)s.%(ext)s')
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Get video info first
-                info = ydl.extract_info(url, download=False)
-                video_title = info.get('title', 'video')
-                duration = info.get('duration', 0)
-                
-                # Check video duration (limit to 5 minutes for processing)
-                if duration > 300:  # 5 minutes = 300 seconds
-                    raise Exception("Video too long. Please use videos under 5 minutes for analysis.")
-                
-                logger.info(f"YouTube video info: {video_title} (duration: {duration}s)")
-                
-                # Download the video
-                ydl.download([url])
-                
-                # Find the downloaded file
-                downloaded_files = [f for f in os.listdir(temp_dir) if f.endswith(('.mp4', '.webm', '.mkv'))]
-                if not downloaded_files:
-                    raise Exception("Failed to download video file")
-                
-                video_file = downloaded_files[0]
-                video_path = os.path.join(temp_dir, video_file)
-                
-                # Copy to a new temporary file that won't be deleted
-                final_temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-                final_temp_path = final_temp_file.name
-                final_temp_file.close()
-                
-                # Copy the file
-                import shutil
-                shutil.copy2(video_path, final_temp_path)
-                
-                file_size = os.path.getsize(final_temp_path)
-                logger.info(f"YouTube video downloaded successfully: {final_temp_path} ({file_size} bytes)")
-                
-                return final_temp_path
-                
-    except Exception as e:
-        logger.error(f"Error downloading YouTube video: {e}")
-        raise Exception(f"Failed to download YouTube video: {str(e)}")
-
-def download_video_from_url(url):
-    """Download video from URL and return the file path"""
-    try:
-        logger.info(f"Downloading video from URL: {url}")
-        
-        # Check if it's a YouTube URL
-        parsed = urlparse(url)
-        if 'youtube.com' in parsed.netloc.lower() or 'youtu.be' in parsed.netloc.lower():
-            return download_youtube_video(url)
-        
-        # For direct video URLs, use the existing method
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
-        response = requests.get(url, headers=headers, stream=True, timeout=30)
-        response.raise_for_status()
-        
-        content_type = response.headers.get('content-type', '').lower()
-        logger.info(f"Content type received: {content_type}")
-        
-        if 'text/html' in content_type:
-            logger.warning(f"Received HTML content instead of video for URL: {url}")
-            raise Exception("This URL appears to be a webpage, not a direct video file. Please use direct video file URLs (ending in .mp4, .avi, etc.) or upload the video file directly.")
-        
-        if not any(video_type in content_type for video_type in ['video/', 'application/octet-stream', 'binary/octet-stream']):
-            logger.warning(f"Content type may not be video: {content_type}")
-        
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-        temp_path = temp_file.name
-        
-        total_size = 0
-        max_size = 100 * 1024 * 1024  # 100MB limit
-        
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                total_size += len(chunk)
-                if total_size > max_size:
-                    temp_file.close()
-                    os.unlink(temp_path)
-                    raise Exception("Video file too large (max 100MB)")
-                temp_file.write(chunk)
-        
-        temp_file.close()
-        logger.info(f"Video downloaded successfully: {temp_path} ({total_size} bytes)")
-        
-        if total_size < 10000:
-            os.unlink(temp_path)
-            raise Exception("Downloaded file is too small to be a valid video. Please check the URL.")
-        
-        return temp_path
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error downloading video: {e}")
-        raise Exception(f"Failed to download video: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error downloading video: {e}")
-        raise Exception(f"Error downloading video: {str(e)}")
-
-@app.route('/url-detect', methods=['GET', 'POST'])
-@login_required
-def url_detect():
-    """Handle URL-based video detection"""
-    if request.method == 'GET':
-        return render_template('url_detect.html')
-    
-    if request.method == 'POST':
-        try:
-            video_url = request.form.get('video_url', '').strip()
-            
-            if not video_url:
-                return render_template('url_detect.html', error="Please enter a video URL")
-            
-            logger.info(f"Processing video URL: {video_url}")
-            
-            # Validate URL
-            if not is_valid_video_url(video_url):
-                return render_template('url_detect.html', error="Please enter a valid video URL. Supported: YouTube URLs and direct video file URLs (ending in .mp4, .avi, .mov, etc.)")
-            
-            # Download video
-            try:
-                video_path = download_video_from_url(video_url)
-            except Exception as e:
-                return render_template('url_detect.html', error=f"Failed to download video: {str(e)}")
-            
-            # Process video
-            try:
-                logger.info("Starting video analysis from URL...")
-                prediction, processing_time = detectFakeVideo(video_path)
-                
-                logger.info(f"Analysis completed. Prediction: {prediction}, Time: {processing_time}")
-                
-                if prediction is None or len(prediction) < 2:
-                    raise Exception("Model prediction failed")
-                
-                if prediction[0] == 0:
-                    output = "FAKE"
-                else:
-                    output = "REAL"
-                confidence = prediction[1]
-                
-                logger.info(f"Video prediction: {output} with confidence {confidence}%")
-                
-                data = {
-                    'output': output, 
-                    'confidence': confidence,
-                    'processing_time': round(processing_time, 2),
-                    'source_url': video_url
-                }
-                
-                logger.info(f"Sending response data: {data}")
-                data_json = json.dumps(data)
-                
-                # Clean up temporary file
-                if os.path.exists(video_path):
-                    os.unlink(video_path)
-                
-                return render_template('url_detect.html', data=data_json)
-                
-            except Exception as e:
-                # Clean up temporary file
-                if 'video_path' in locals() and os.path.exists(video_path):
-                    os.unlink(video_path)
-                raise e
-                
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error processing video URL: {error_msg}")
-            return render_template('url_detect.html', error=f"Error processing video: {error_msg}")
-
 @app.route('/detect', methods=['GET', 'POST'])
 @login_required
 def detect():
@@ -675,9 +1010,13 @@ def detect():
             if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
                 raise Exception("Video file is empty or corrupted")
             
-            logger.info("Starting video analysis...")
-            # Process video without signal-based timeout
-            prediction, processing_time = detectFakeVideo(video_path)
+            # Use EfficientNet-B0 model for detection
+            # logger.info("Starting video analysis with EfficientNet-B0 model...")
+            # prediction, processing_time = detectFakeVideo(video_path)
+    
+            # SWITCH TO NEW XCEPTION MODEL
+            logger.info("Starting video analysis with Xception (.h5) model...")
+            prediction, processing_time = predict_video_xception(video_path)
             
             logger.info(f"Analysis completed. Prediction: {prediction}, Time: {processing_time}")
             
@@ -689,13 +1028,18 @@ def detect():
             else:
                 output = "REAL"
             confidence = prediction[1]
+            heatmap_url = prediction[2] if len(prediction) > 2 else None
+            frame_urls = prediction[3] if len(prediction) > 3 else []
             
             logger.info(f"Video prediction: {output} with confidence {confidence}%")
             
             data = {
                 'output': output, 
                 'confidence': confidence,
-                'processing_time': round(processing_time, 2)
+                'processing_time': round(processing_time, 2),
+                'heatmap_url': heatmap_url,
+                'frames_analyzed': len(frame_urls),
+                'frame_urls': frame_urls
             }
             
             logger.info(f"Sending response data: {data}")
@@ -766,54 +1110,121 @@ class DFModel(torch.nn.Module):
         x = self.avgpool(fmap)
         x = x.view(batch_size, seq_length, 2048)
         x_lstm, _ = self.lstm(x, None)
-        return fmap, self.dp(self.linear1(x_lstm[:, -1, :]))
+        # Apply linear layer to ALL time steps to get per-frame predictions
+        # x_lstm: [batch, seq_length, hidden_dim]
+        # self.linear1(x_lstm): [batch, seq_length, num_classes]
+        sequence_logits = self.linear1(x_lstm)
+        
+        return fmap, self.dp(self.linear1(x_lstm[:, -1, :])), sequence_logits
 
 # Lazy loading for model
 _model = None
 _transform = None
 
 def get_model():
+    """Load DFModel (ResNeXt50 + LSTM) for video detection"""
     global _model, _transform
     if _model is None:
         try:
-            logger.info("Loading model from Hugging Face Hub...")
-            # ✅ Load model from Hugging Face
-            model_path = hf_hub_download(repo_id="imtiyaz123/DF_Model", filename="df_model.pt")
+            logger.info("Loading DFModel (ResNeXt50 + LSTM) for video detection...")
+            # Load model from local path
+            model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'df_model.pt')
             
-            # ✅ Initialize model and load weights properly
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"DFModel not found at: {model_path}")
+            
+            logger.info(f"Loading DFModel from: {model_path}")
+            
+            # Initialize model and load weights properly
             _model = DFModel()
             _model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
             _model.eval()
             
-            # ✅ Image transformation
+            # Video frame transformation
             _transform = transforms.Compose([
                 transforms.Resize((224, 224)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
             
-            logger.info("Model loaded successfully!")
+            logger.info("DFModel loaded successfully!")
         except Exception as e:
-            logger.error(f"Error loading model: {str(e)}")
+            logger.error(f"Error loading DFModel: {str(e)}")
             raise
     
     return _model, _transform
 
 def predict_image(image_path):
+    """Predict if image is fake using EfficientNet-B0 model"""
     try:
-        model, transform = get_model()
+        model, transform = get_efficientnet_model()
         image = Image.open(image_path).convert("RGB")
-        image = transform(image).unsqueeze(0)
+        input_tensor = transform(image).unsqueeze(0)
+        
         with torch.no_grad():
-            _, output_tensor = model(image)  # Get the second element of the tuple (output_tensor)
-            probabilities = torch.nn.functional.softmax(output_tensor, dim=1)
-            confidence, predicted_class = torch.max(probabilities, 1)
-            return int(predicted_class.item()), float(confidence.item()) * 100
+            output = model(input_tensor)
+            probs = torch.softmax(output, dim=1)[0]
+            predicted_class = torch.argmax(probs).item()
+            confidence = probs[predicted_class].item() * 100
+            
+            # Map EfficientNet output to our format:
+            # EfficientNet: 0 = Real, 1 = Fake
+            # Our format: 0 = FAKE, 1 = REAL (inverted)
+            if predicted_class == 1:  # EfficientNet says Fake
+                our_prediction = 0  # Our FAKE
+            else:  # EfficientNet says Real
+                our_prediction = 1  # Our REAL
+            
+            return our_prediction, confidence
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")
         traceback.print_exc()
         return None, None
 
+
+
+@app.route('/audio-detect', methods=['GET', 'POST'])
+@login_required
+def audio_detect():
+    """Audio deepfake detection endpoint"""
+    if request.method == 'POST':
+        if 'audio' not in request.files:
+            return render_template('audio.html', error="No audio file uploaded")
+        
+        audio = request.files['audio']
+        if audio.filename == '':
+            return render_template('audio.html', error="No audio file selected")
+        
+        # Check file extension
+        allowed_extensions = ['.wav', '.mp3', '.flac', '.ogg', '.m4a']
+        file_ext = os.path.splitext(audio.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            return render_template('audio.html', error="Invalid file format. Please upload WAV, MP3, FLAC, or OGG files.")
+        
+        try:
+            filename = secure_filename(audio.filename)
+            audio_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            audio.save(audio_path)
+            
+            logger.info(f"Audio file saved: {audio_path}")
+            
+            # Run audio deepfake detection
+            is_fake, confidence = predict_audio(audio_path)
+            
+            if is_fake is None:
+                os.remove(audio_path)
+                return render_template('audio.html', error="Error processing audio file")
+            
+            output = "FAKE" if is_fake else "REAL"
+            
+            os.remove(audio_path)
+            return render_template('audio.html', output=output, confidence=round(confidence, 2))
+            
+        except Exception as e:
+            logger.error(f"Error processing audio: {str(e)}")
+            return render_template('audio.html', error=f"Error processing audio: {str(e)}")
+    
+    return render_template('audio.html')
 
 @app.route('/image-detect', methods=['GET', 'POST'])
 def image_detect():
